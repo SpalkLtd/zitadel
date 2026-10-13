@@ -762,6 +762,47 @@ service UserService {
     };
   }
 
+  // Move User
+  //
+  // Move a human user to another organization of the same instance, keeping their ID.
+  // The user keeps their profile, email and phone with their verification, password, multi-factor and passwordless authenticators (TOTP, U2F, passkeys, OTP via SMS and email), identity provider links, metadata and state (locked or deactivated).
+  //
+  // The user's sessions are terminated, so they have to log in again, and their authorizations and administrator roles are removed, since they belonged to the previous organization.
+  // Their avatar is not moved.
+  // The username must be available in the target organization.
+  // Service accounts cannot be moved.
+  //
+  // Required permissions:
+  //  - `user.delete` on the user's current organization
+  //  - `user.write` on the target organization
+  rpc MoveUser(MoveUserRequest) returns (MoveUserResponse) {
+    option (google.api.http) = {
+      post: "/v2/users/{user_id}/move"
+      body: "*"
+    };
+
+    option (zitadel.protoc_gen_zitadel.v2.options) = {
+      auth_option: {
+        permission: "authenticated"
+      }
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      };
+      responses: {
+        key: "404";
+        value: {
+          description: "User ID or organization ID does not exist.";
+        }
+      }
+    };
+  }
+
   // Start the registration of passkey for a user
   //
   // Start the registration of a passkey for a user, as a response the public key credential creation options are returned, which are used to verify the passkey..
@@ -2473,6 +2514,38 @@ message DeleteUserRequest {
 
 message DeleteUserResponse {
   zitadel.object.v2.Details details = 1;
+}
+
+message MoveUserRequest {
+  // The ID of the user to move.
+  string user_id = 1 [
+    (validate.rules).string = {min_len: 1, max_len: 200},
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      min_length: 1;
+      max_length: 200;
+      example: "\"69629012906488334\"";
+    }
+  ];
+  // The ID of the organization to move the user to.
+  string organization_id = 2 [
+    (validate.rules).string = {min_len: 1, max_len: 200},
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      min_length: 1;
+      max_length: 200;
+      example: "\"69629026806489455\"";
+    }
+  ];
+}
+
+message MoveUserResponse {
+  // The timestamp of the move of the user.
+  google.protobuf.Timestamp change_date = 1 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      example: "\"2025-01-23T10:34:18.051Z\"";
+    }
+  ];
 }
 
 
