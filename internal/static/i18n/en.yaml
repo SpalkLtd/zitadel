@@ -86,6 +86,7 @@ Errors:
     Invalid: "Userdata is invalid"
     DomainNotAllowedAsUsername: "Domain is already reserved and cannot be used"
     AlreadyInactive: "User already inactive"
+    AlreadyInOrganization: "User already belongs to this organization"
     NotInactive: "User is not inactive"
     CantDeactivateInitial: "User with state initial can only be deleted not deactivated"
     ShouldBeActiveOrInitial: "User is not active or initial"
