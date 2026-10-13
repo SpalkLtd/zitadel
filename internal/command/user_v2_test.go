@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/zitadel/zitadel/internal/api/authz"
+	"github.com/zitadel/zitadel/internal/crypto"
 	"github.com/zitadel/zitadel/internal/domain"
 	"github.com/zitadel/zitadel/internal/eventstore"
 	"github.com/zitadel/zitadel/internal/repository/org"
@@ -1445,4 +1446,150 @@ func TestCommandSide_RemoveUserV2OwnerDeleteReady(t *testing.T) {
 	got, err := r.RemoveUserV2(ctx, "user1", "", nil)
 	assert.NoError(t, err)
 	assertObjectDetails(t, &domain.ObjectDetails{ResourceOwner: "org1"}, got)
+}
+
+func TestCommandSide_MoveUser(t *testing.T) {
+	ctx := authz.SetCtxData(context.Background(), authz.CtxData{UserID: "ctxUserID"})
+	fromAgg := &user.NewAggregate("user1", "org1").Aggregate
+	toAgg := &user.NewAggregate("user1", "org2").Aggregate
+	secret := &crypto.CryptoValue{CryptoType: crypto.TypeEncryption, Algorithm: "enc", KeyID: "id", Crypted: []byte("totp")}
+
+	humanAdded := func(agg *eventstore.Aggregate) *user.HumanAddedEvent {
+		e := user.NewHumanAddedEvent(ctx, agg, "username", "firstname", "lastname", "nickname", "displayname",
+			language.German, domain.GenderUnspecified, "email@test.ch", true)
+		e.AddPhoneData("+41791234567")
+		e.AddPasswordData("$2a$10$hash", false)
+		return e
+	}
+	// userEvents is the user's history in org1, with every kind of state that moves.
+	userEvents := func() []eventstore.Event {
+		return []eventstore.Event{
+			eventFromEventPusher(humanAdded(fromAgg)),
+			eventFromEventPusher(user.NewHumanEmailVerifiedEvent(ctx, fromAgg)),
+			eventFromEventPusher(user.NewHumanPhoneVerifiedEvent(ctx, fromAgg)),
+			eventFromEventPusher(user.NewUserIDPLinkAddedEvent(ctx, fromAgg, "idp1", "display", "external1")),
+			eventFromEventPusher(user.NewMetadataSetEvent(ctx, fromAgg, "key", []byte("value"))),
+			eventFromEventPusher(user.NewUserLockedEvent(ctx, fromAgg)),
+		}
+	}
+	orgExists := expectFilter(eventFromEventPusher(org.NewOrgAddedEvent(context.Background(), &org.NewAggregate("org2").Aggregate, "org2")))
+	domainPolicy := func(orgID string) expect {
+		return expectFilter(eventFromEventPusher(org.NewDomainPolicyAddedEvent(context.Background(), &org.NewAggregate(orgID).Aggregate, true, true, true)))
+	}
+	// authenticatorFilters answer the TOTP, OTP SMS, OTP email, recovery code,
+	// U2F and passkey reads, with a TOTP and a U2F key set up.
+	authenticatorFilters := []expect{
+		expectFilter(
+			eventFromEventPusher(user.NewHumanOTPAddedEvent(ctx, fromAgg, secret)),
+			eventFromEventPusher(user.NewHumanOTPVerifiedEvent(ctx, fromAgg, "agent1")),
+		),
+		expectFilter(),
+		expectFilter(),
+		expectFilter(),
+		expectFilter(
+			eventFromEventPusher(user.NewHumanU2FAddedEvent(ctx, fromAgg, "u2f1", "challenge", "rp")),
+			eventFromEventPusher(user.NewHumanU2FVerifiedEvent(ctx, fromAgg, "u2f1", "key", "none", []byte("keyid"), []byte("pub"), []byte("aaguid"), 3, "agent1")),
+		),
+		expectFilter(),
+	}
+
+	tests := []struct {
+		name           string
+		organizationID string
+		expects        []expect
+		permission     domain.PermissionCheck
+		wantErr        func(error) bool
+	}{
+		{
+			name:           "missing organization",
+			organizationID: "",
+			wantErr:        zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:           "user not found",
+			organizationID: "org2",
+			expects:        []expect{expectFilter()},
+			wantErr:        zerrors.IsNotFound,
+		},
+		{
+			name:           "service account",
+			organizationID: "org2",
+			expects: []expect{expectFilter(eventFromEventPusher(
+				user.NewMachineAddedEvent(ctx, fromAgg, "machine", "name", "description", true, domain.OIDCTokenTypeBearer),
+			))},
+			wantErr: zerrors.IsPreconditionFailed,
+		},
+		{
+			name:           "already in the organization",
+			organizationID: "org1",
+			expects:        []expect{expectFilter(userEvents()...)},
+			wantErr:        zerrors.IsPreconditionFailed,
+		},
+		{
+			name:           "no permission",
+			organizationID: "org2",
+			expects:        []expect{expectFilter(userEvents()...)},
+			permission:     newMockPermissionCheckNotAllowed(),
+			wantErr:        zerrors.IsPermissionDenied,
+		},
+		{
+			name:           "target organization not found",
+			organizationID: "org2",
+			expects:        []expect{expectFilter(userEvents()...), expectFilter()},
+			wantErr:        zerrors.IsPreconditionFailed,
+		},
+		{
+			name:           "moves the user with their state",
+			organizationID: "org2",
+			expects: append(append(
+				[]expect{expectFilter(userEvents()...), orgExists, expectFilter(userEvents()...)},
+				authenticatorFilters...),
+				domainPolicy("org2"),
+				expectPush(
+					user.NewUserRemovedByOwnerEvent(ctx, fromAgg),
+					humanAdded(toAgg),
+					user.NewHumanEmailVerifiedEvent(ctx, toAgg),
+					user.NewHumanPhoneVerifiedEvent(ctx, toAgg),
+					user.NewHumanOTPAddedEvent(ctx, toAgg, secret),
+					user.NewHumanOTPVerifiedEvent(ctx, toAgg, ""),
+					user.NewHumanU2FAddedEvent(ctx, toAgg, "u2f1", "challenge", "rp"),
+					user.NewHumanU2FVerifiedEvent(ctx, toAgg, "u2f1", "key", "none", []byte("keyid"), []byte("pub"), []byte("aaguid"), 3, ""),
+					user.NewUserIDPLinkAddedEvent(ctx, toAgg, "idp1", "display", "external1"),
+					user.NewMetadataSetEvent(ctx, toAgg, "key", []byte("value")),
+					user.NewUserLockedEvent(ctx, toAgg),
+				),
+			),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			permission := tt.permission
+			if permission == nil {
+				permission = newMockPermissionCheckAllowed()
+			}
+			r := &Commands{
+				eventstore:       expectEventstore(tt.expects...)(t),
+				checkPermission:  permission,
+				ownerDeleteReady: func(context.Context) (bool, error) { return true, nil },
+			}
+			got, err := r.MoveUser(ctx, "user1", tt.organizationID, nil, nil)
+			if tt.wantErr != nil {
+				assert.True(t, tt.wantErr(err), "unexpected error: %v", err)
+				return
+			}
+			assert.NoError(t, err)
+			assertObjectDetails(t, &domain.ObjectDetails{ResourceOwner: "org2"}, got)
+		})
+	}
+}
+
+// The removal must keep the user's current organization: otherwise the
+// eventstore stamps it with the owner of the added event that follows it.
+func TestCommandSide_MoveUserRemovalEnforcesCurrentOrganization(t *testing.T) {
+	human := NewUserHumanWriteModel("user1", "org1", false, false, false, false, false, false, false)
+	removal, err := (&Commands{}).moveUserRemoveEvent(context.Background(), human, true)
+	assert.NoError(t, err)
+	assert.True(t, eventstore.ShouldEnforceResourceOwner(removal))
+	assert.Equal(t, "org1", removal.Aggregate().ResourceOwner)
+	assert.Equal(t, user.UserRemovedType, removal.Type())
 }
