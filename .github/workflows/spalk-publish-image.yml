@@ -1,0 +1,134 @@
+# Spalk: build the fork's API image and push it, with upstream's unmodified login UI image, to Spalk's private ECR
+# (<env>_zitadel and <env>_zitadel-login). Reusable: run it through spalk-publish.yml, which calls it at a pinned commit.
+#
+# Spalk's AWS role (spalk-stack's <env>_zitadel_github_execution_role_cd_mr) trusts only this file at commit SHAs
+# listed in its publish_workflow_shas, called from spalk-publish.yml on the spalk branch: the OIDC subject must be
+#   repo:SpalkLtd/zitadel:job_workflow_ref:SpalkLtd/zitadel/.github/workflows/spalk-publish-image.yml@<sha>:workflow_ref:SpalkLtd/zitadel/.github/workflows/spalk-publish.yml@refs/heads/spalk
+# So a change here is committed, its SHA added to publish_workflow_shas and applied, and only then the caller's pin moved.
+#
+# The build job runs without AWS access and hands the images to the push job as an artifact. Only the push job, which
+# runs no repository code, can request an OIDC token. arm64 only: Spalk runs Zitadel on Fargate ARM64.
+name: Spalk publish image (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Git tag to build, also the image tag (e.g. v4.19.4-spalk.1)
+        type: string
+        required: true
+      environment:
+        description: dev or prod
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      aws-region: ${{ steps.inputs.outputs.aws-region }}
+      login-tag: ${{ steps.inputs.outputs.login-tag }}
+    steps:
+      - id: inputs
+        name: Check inputs
+        env:
+          TAG: ${{ inputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$ENVIRONMENT" in
+            dev) region=us-east-2 ;;
+            prod) region=us-east-1 ;;
+            *) echo "::error::environment must be dev or prod, not '$ENVIRONMENT'"; exit 1 ;;
+          esac
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-spalk\.[0-9]+$ ]]; then
+            echo "::error::tag must look like v4.19.4-spalk.1, not '$TAG'"; exit 1
+          fi
+          echo "aws-region=$region" >> "$GITHUB_OUTPUT"
+          echo "login-tag=${TAG%-spalk.*}" >> "$GITHUB_OUTPUT"
+      # Always this repository, whoever calls the workflow.
+      - uses: actions/checkout@v4
+        with:
+          repository: SpalkLtd/zitadel
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Only GitHub's own and verified actions are allowed in SpalkLtd, so pnpm comes from Node's Corepack
+      # (the version pinned in package.json's packageManager) rather than pnpm/action-setup.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable && pnpm --version
+      - name: Install code generators
+        run: python3 -c "import json;print('\n'.join(json.load(open('apps/api/project.json'))['targets']['generate-install']['options']['commands']))" | bash -e
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the console, binary and image
+        env:
+          ZITADEL_VERSION: ${{ inputs.tag }}
+          NX_DAEMON: "false"
+          NX_NO_CLOUD: "true"
+          NX_TUI: "false"
+        run: pnpm nx run @zitadel/api:pack --outputStyle=stream
+      - name: Save the images
+        env:
+          LOGIN_TAG: ${{ steps.inputs.outputs.login-tag }}
+        run: |
+          docker pull --platform linux/arm64 "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG"
+          mkdir -p images
+          docker save zitadel/zitadel:local | zstd -T0 -o images/zitadel.tar.zst
+          docker save "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG" | zstd -T0 -o images/login.tar.zst
+          (cd images && sha256sum *.tar.zst | tee SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images
+          path: images/
+          retention-days: 1
+          compression-level: 0
+
+  push:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: images
+      - name: Check and load the images
+        run: |
+          (cd images && sha256sum -c SHA256SUMS)
+          zstd -dc images/zitadel.tar.zst | docker load
+          zstd -dc images/login.tar.zst | docker load
+      # Printed so a trust failure can be compared with the role's trust policy. Not a secret.
+      - name: Show the OIDC subject
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | python3 -c 'import json,sys;print(json.load(sys.stdin)["value"])')
+          python3 -c 'import base64,json,sys;p=sys.argv[1].split(".")[1];p+="="*(-len(p)%4);print("sub:", json.loads(base64.urlsafe_b64decode(p))["sub"])' "$token"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd
+        with:
+          role-to-assume: arn:aws:iam::496668274218:role/${{ inputs.environment }}_zitadel_github_execution_role_cd_mr
+          aws-region: ${{ needs.build.outputs.aws-region }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd
+      - name: Push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          TAG: ${{ inputs.tag }}
+          LOGIN_TAG: ${{ needs.build.outputs.login-tag }}
+        run: |
+          docker tag zitadel/zitadel:local "$REGISTRY/${ENVIRONMENT}_zitadel:$TAG"
+          docker push "$REGISTRY/${ENVIRONMENT}_zitadel:$TAG"
+          docker tag "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG" "$REGISTRY/${ENVIRONMENT}_zitadel-login:$LOGIN_TAG"
+          docker push "$REGISTRY/${ENVIRONMENT}_zitadel-login:$LOGIN_TAG"
