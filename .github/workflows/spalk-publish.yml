@@ -25,11 +25,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: pnpm/action-setup@v4
+      # Only GitHub's own and verified actions are allowed in SpalkLtd, so pnpm comes from Node's Corepack
+      # (the version pinned in package.json's packageManager) rather than pnpm/action-setup.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: pnpm
+      - name: Enable pnpm
+        run: corepack enable && pnpm --version
       - name: Install code generators
         run: python3 -c "import json;print('\n'.join(json.load(open('apps/api/project.json'))['targets']['generate-install']['options']['commands']))" | bash -e
       - name: Install JS dependencies
@@ -41,11 +43,8 @@ jobs:
           NX_NO_CLOUD: "true"
           NX_TUI: "false"
         run: pnpm nx run @zitadel/api:pack --outputStyle=stream
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Push
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zitadel:${{ inputs.tag }}"
