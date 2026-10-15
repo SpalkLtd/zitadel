@@ -1,0 +1,53 @@
+# Spalk: build the fork's API image and publish it to ghcr.io/<owner>/zitadel.
+# Run by hand (Actions > Spalk publish image > Run workflow) with a git tag such as v4.19.4-spalk.1.
+# arm64 only: Spalk runs Zitadel on Fargate ARM64. The login UI is upstream's ghcr.io/zitadel/zitadel-login.
+name: Spalk publish image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to build, also used as the image tag (e.g. v4.19.4-spalk.1)
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install code generators
+        run: python3 -c "import json;print('\n'.join(json.load(open('apps/api/project.json'))['targets']['generate-install']['options']['commands']))" | bash -e
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the console, binary and image
+        env:
+          ZITADEL_VERSION: ${{ inputs.tag }}
+          NX_DAEMON: "false"
+          NX_NO_CLOUD: "true"
+          NX_TUI: "false"
+        run: pnpm nx run @zitadel/api:pack --outputStyle=stream
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zitadel:${{ inputs.tag }}"
+          docker tag zitadel/zitadel:local "$image"
+          docker push "$image"
