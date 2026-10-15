@@ -1,52 +1,27 @@
-# Spalk: build the fork's API image and publish it to ghcr.io/<owner>/zitadel.
-# Run by hand (Actions > Spalk publish image > Run workflow) with a git tag such as v4.19.4-spalk.1.
-# arm64 only: Spalk runs Zitadel on Fargate ARM64. The login UI is upstream's ghcr.io/zitadel/zitadel-login.
+# Spalk: publish the fork's image to Spalk's private ECR. Run by hand from the default branch, spalk:
+# Actions > Spalk publish image > Run workflow, with a git tag such as v4.19.4-spalk.1 and an environment.
+# It calls spalk-publish-image.yml at a pinned commit; see that file for how the pin and Spalk's AWS role fit together.
 name: Spalk publish image
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Git tag to build, also used as the image tag (e.g. v4.19.4-spalk.1)
+        description: Git tag to build, also the image tag (e.g. v4.19.4-spalk.1)
         required: true
+      environment:
+        description: Spalk environment whose ECR receives the images
+        type: choice
+        options: [dev, prod]
+        default: dev
 
 permissions:
   contents: read
-  packages: write
+  id-token: write
 
 jobs:
   publish:
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      # Only GitHub's own and verified actions are allowed in SpalkLtd, so pnpm comes from Node's Corepack
-      # (the version pinned in package.json's packageManager) rather than pnpm/action-setup.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Enable pnpm
-        run: corepack enable && pnpm --version
-      - name: Install code generators
-        run: python3 -c "import json;print('\n'.join(json.load(open('apps/api/project.json'))['targets']['generate-install']['options']['commands']))" | bash -e
-      - name: Install JS dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build the console, binary and image
-        env:
-          ZITADEL_VERSION: ${{ inputs.tag }}
-          NX_DAEMON: "false"
-          NX_NO_CLOUD: "true"
-          NX_TUI: "false"
-        run: pnpm nx run @zitadel/api:pack --outputStyle=stream
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Push
-        run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zitadel:${{ inputs.tag }}"
-          docker tag zitadel/zitadel:local "$image"
-          docker push "$image"
+    uses: SpalkLtd/zitadel/.github/workflows/spalk-publish-image.yml@dfbfd62c5069146552d2fbb933014f38b1de950d
+    with:
+      tag: ${{ inputs.tag }}
+      environment: ${{ inputs.environment }}
