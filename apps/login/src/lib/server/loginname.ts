@@ -489,7 +489,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         }
 
         return { redirect: "/passkey?" + passkeyParams };
-      } else if (methods.authMethodTypes.includes(AuthenticationMethodType.IDP)) {
+      } else if (
+        methods.authMethodTypes.includes(AuthenticationMethodType.IDP) &&
+        // Spalk: a user with a usable password gets the password page, which offers the IdPs below the form,
+        // instead of being sent straight to their linked IdP. Without a usable password they still go to the IdP.
+        !(methods.authMethodTypes.includes(AuthenticationMethodType.PASSWORD) && userLoginSettings?.allowLocalAuthentication)
+      ) {
         return redirectUserToIDP(userId, organization);
       } else if (methods.authMethodTypes.includes(AuthenticationMethodType.PASSWORD)) {
         // Check if password authentication is allowed

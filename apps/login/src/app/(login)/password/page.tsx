@@ -1,11 +1,12 @@
 import { Alert } from "@/components/alert";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { PasswordForm } from "@/components/password-form";
+import { SignInWithIdp } from "@/components/sign-in-with-idp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
-import { getBrandingSettings, getDefaultOrg, getLoginSettings } from "@/lib/zitadel";
+import { getActiveIdentityProviders, getBrandingSettings, getDefaultOrg, getLoginSettings } from "@/lib/zitadel";
 import { Organization } from "@zitadel/proto/zitadel/org/v2/org_pb";
 import { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
@@ -50,6 +51,15 @@ export default async function Page(props: { searchParams: Promise<Record<string 
     organization: organization ?? sessionFactors?.factors?.user?.organizationId ?? defaultOrganization,
   });
 
+  // Spalk: sendLoginname sends a user with both a password and an IdP here rather than to the IdP, so offer the
+  // organization's active IdPs below the form. Signing in through one of them logs the user in by their IdP link.
+  const identityProviders = loginSettings?.allowExternalIdp
+    ? await getActiveIdentityProviders({
+        serviceConfig,
+        orgId: organization ?? sessionFactors?.factors?.user?.organizationId ?? defaultOrganization,
+      }).then((resp) => resp.identityProviders)
+    : [];
+
   return (
     <DynamicTheme branding={branding}>
       <div className="flex flex-col space-y-4">
@@ -93,6 +103,19 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             defaultOrganization={defaultOrganization}
             loginSettings={loginSettings}
           />
+        )}
+
+        {/* Spalk: the IdPs as an alternative to the password, as on the loginname page. */}
+        {loginName && loginSettings?.allowExternalIdp && !!identityProviders?.length && (
+          <div className="w-full pt-6 pb-4">
+            <SignInWithIdp
+              identityProviders={identityProviders}
+              requestId={requestId}
+              organization={organization}
+              postErrorRedirectUrl="/loginname"
+              loginHint={loginName}
+            ></SignInWithIdp>
+          </div>
         )}
       </div>
     </DynamicTheme>

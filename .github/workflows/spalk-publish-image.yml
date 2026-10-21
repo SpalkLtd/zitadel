@@ -1,5 +1,6 @@
-# Spalk: build the fork's API image and push it, with upstream's unmodified login UI image, to Spalk's private ECR
-# (<env>_zitadel and <env>_zitadel-login). Reusable: run it through spalk-publish.yml, which calls it at a pinned commit.
+# Spalk: build the fork's API image and its login UI image (apps/login, which carries Spalk's login patch) and push
+# them to Spalk's private ECR as <env>_zitadel:<tag> and <env>_zitadel-login:<tag>. Reusable: run it through
+# spalk-publish.yml, which calls it at a pinned commit.
 #
 # Spalk's AWS role (spalk-stack's <env>_zitadel_github_execution_role_cd_mr) trusts only this file at commit SHAs
 # listed in its publish_workflow_shas, called from spalk-publish.yml on the spalk branch: the OIDC subject must be
@@ -7,7 +8,7 @@
 # So a change here is committed, its SHA added to publish_workflow_shas and applied, and only then the caller's pin moved.
 #
 # The build job runs without AWS access and hands the images to the push job as an artifact. Only the push job, which
-# runs no repository code, can request an OIDC token. arm64 only: Spalk runs Zitadel on Fargate ARM64.
+# runs no repository code, can request an OIDC token. arm64 only: Spalk runs Zitadel and its login on Fargate ARM64.
 name: Spalk publish image (reusable)
 
 on:
@@ -32,7 +33,6 @@ jobs:
       contents: read
     outputs:
       aws-region: ${{ steps.inputs.outputs.aws-region }}
-      login-tag: ${{ steps.inputs.outputs.login-tag }}
     steps:
       - id: inputs
         name: Check inputs
@@ -49,7 +49,6 @@ jobs:
             echo "::error::tag must look like v4.19.4-spalk.1, not '$TAG'"; exit 1
           fi
           echo "aws-region=$region" >> "$GITHUB_OUTPUT"
-          echo "login-tag=${TAG%-spalk.*}" >> "$GITHUB_OUTPUT"
       # Always this repository, whoever calls the workflow.
       - uses: actions/checkout@v4
         with:
@@ -78,14 +77,21 @@ jobs:
           NX_NO_CLOUD: "true"
           NX_TUI: "false"
         run: pnpm nx run @zitadel/api:pack --outputStyle=stream
-      - name: Save the images
+      # As upstream's pack.yml builds ghcr.io/zitadel/zitadel-login: the Next.js standalone build, then
+      # apps/login/Dockerfile with apps/login as the context (it copies .next/standalone).
+      - name: Build the login UI standalone
         env:
-          LOGIN_TAG: ${{ steps.inputs.outputs.login-tag }}
+          NX_DAEMON: "false"
+          NX_NO_CLOUD: "true"
+          NX_TUI: "false"
+        run: pnpm nx run --nxBail @zitadel/login:build --outputStyle=stream
+      - name: Build the login UI image
+        run: docker build --platform linux/arm64 -f apps/login/Dockerfile -t zitadel/zitadel-login:local apps/login
+      - name: Save the images
         run: |
-          docker pull --platform linux/arm64 "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG"
           mkdir -p images
           docker save zitadel/zitadel:local | zstd -T0 -o images/zitadel.tar.zst
-          docker save "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG" | zstd -T0 -o images/login.tar.zst
+          docker save zitadel/zitadel-login:local | zstd -T0 -o images/login.tar.zst
           (cd images && sha256sum *.tar.zst | tee SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -126,9 +132,8 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           ENVIRONMENT: ${{ inputs.environment }}
           TAG: ${{ inputs.tag }}
-          LOGIN_TAG: ${{ needs.build.outputs.login-tag }}
         run: |
           docker tag zitadel/zitadel:local "$REGISTRY/${ENVIRONMENT}_zitadel:$TAG"
           docker push "$REGISTRY/${ENVIRONMENT}_zitadel:$TAG"
-          docker tag "ghcr.io/zitadel/zitadel-login:$LOGIN_TAG" "$REGISTRY/${ENVIRONMENT}_zitadel-login:$LOGIN_TAG"
-          docker push "$REGISTRY/${ENVIRONMENT}_zitadel-login:$LOGIN_TAG"
+          docker tag zitadel/zitadel-login:local "$REGISTRY/${ENVIRONMENT}_zitadel-login:$TAG"
+          docker push "$REGISTRY/${ENVIRONMENT}_zitadel-login:$TAG"
