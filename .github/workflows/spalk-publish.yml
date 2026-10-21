@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Git tag to build, also the image tag (e.g. v4.19.4-spalk.1)
+        description: Git tag to build, also the image tag (e.g. v4.19.4-spalk.2)
         required: true
       environment:
         description: Spalk environment whose ECR receives the images
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    uses: SpalkLtd/zitadel/.github/workflows/spalk-publish-image.yml@dfbfd62c5069146552d2fbb933014f38b1de950d
+    uses: SpalkLtd/zitadel/.github/workflows/spalk-publish-image.yml@9781dde4176d2884d3ec508807e8fb88e8886cb9
     with:
       tag: ${{ inputs.tag }}
       environment: ${{ inputs.environment }}
