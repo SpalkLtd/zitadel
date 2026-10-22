@@ -45,10 +45,21 @@ async function createSessionWithRetry(command: { checks: Checks; requestId: stri
   throw lastError;
 }
 
+// Spalk: alreadyExistsMessage is the message of a user-creation error that says the
+// username or email is taken: Zitadel's own, or the one Spalk's user-creation hook
+// gives (a 409, which Zitadel returns as AlreadyExists), without Zitadel's error ID.
+function alreadyExistsMessage(error: unknown): string | undefined {
+  if (!(error instanceof ConnectError) || error.code !== Code.AlreadyExists) {
+    return undefined;
+  }
+  return error.rawMessage.replace(/ \([A-Za-z0-9]+-[A-Za-z0-9]+\)$/, "") || undefined;
+}
+
 type RegisterUserCommand = {
   email: string;
   firstName: string;
   lastName: string;
+  username?: string; // Spalk: the username the user chose
   password?: string;
   organization: string;
   requestId?: string;
@@ -85,15 +96,20 @@ export async function registerUser(
     email: command.email,
     firstName: command.firstName,
     lastName: command.lastName,
+    username: command.username,
     password: command.password ? command.password : undefined,
     organization: command.organization,
   }).catch((error) => {
     logger.error("Failed to create user", { error });
-    return null;
+    // Spalk: a taken username or email is the user's to fix, so they are told which
+    return alreadyExistsMessage(error) ?? null;
   });
 
   if (!addResponse) {
     return { error: t("errors.couldNotCreateUser") };
+  }
+  if (typeof addResponse === "string") {
+    return { error: addResponse };
   }
 
   let checkPayload: any = {

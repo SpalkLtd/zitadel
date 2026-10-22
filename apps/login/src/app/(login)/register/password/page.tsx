@@ -15,7 +15,7 @@ import { headers } from "next/headers";
 export default async function Page(props: { searchParams: Promise<Record<string | number | symbol, string | undefined>> }) {
   const searchParams = await props.searchParams;
 
-  let { firstname, lastname, email, organization, requestId } = searchParams;
+  let { firstname, lastname, email, username, organization, requestId } = searchParams; // Spalk: username
 
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
@@ -66,6 +66,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             email={email}
             firstname={firstname}
             lastname={lastname}
+            username={username} // Spalk: the username they chose
             organization={organization as string} // organization is guaranteed to be a string here otherwise we would have returned earlier
             requestId={requestId}
           ></SetRegisterPasswordForm>

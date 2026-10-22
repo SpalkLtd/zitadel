@@ -456,11 +456,20 @@ export type AddHumanUserData = WithServiceConfig<{
   firstName: string;
   lastName: string;
   email: string;
+  username?: string; // Spalk: the username the user chose; their email when absent
   password?: string;
   organization: string;
 }>;
 
-export async function addHumanUser({ serviceConfig, email, firstName, lastName, password, organization }: AddHumanUserData) {
+export async function addHumanUser({
+  serviceConfig,
+  email,
+  firstName,
+  lastName,
+  username,
+  password,
+  organization,
+}: AddHumanUserData) {
   const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
 
   let addHumanUserRequest: AddHumanUserRequest = create(AddHumanUserRequestSchema, {
@@ -471,7 +480,7 @@ export async function addHumanUser({ serviceConfig, email, firstName, lastName, 
         value: false,
       },
     },
-    username: email,
+    username: username || email, // Spalk: the username they chose, when they chose one
     profile: { givenName: firstName, familyName: lastName },
     passwordType: password ? { case: "password", value: { password } } : undefined,
   });

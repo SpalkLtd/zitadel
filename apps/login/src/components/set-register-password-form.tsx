@@ -29,6 +29,7 @@ type Props = {
   email: string;
   firstname: string;
   lastname: string;
+  username?: string; // Spalk: from the register form
   organization: string;
   requestId?: string;
 };
@@ -38,6 +39,7 @@ export function SetRegisterPasswordForm({
   email,
   firstname,
   lastname,
+  username,
   organization,
   requestId,
 }: Props) {
@@ -65,6 +67,7 @@ export function SetRegisterPasswordForm({
         email: email,
         firstName: firstname,
         lastName: lastname,
+        username: username, // Spalk: the username they chose
         organization: organization,
         requestId: requestId,
         password: values.password,

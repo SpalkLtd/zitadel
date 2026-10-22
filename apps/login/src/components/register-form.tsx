@@ -23,6 +23,7 @@ type Inputs =
       firstname: string;
       lastname: string;
       email: string;
+      username: string;
     }
   | FieldValues;
 
@@ -72,6 +73,7 @@ export function RegisterForm({
         email: values.email,
         firstName: values.firstname,
         lastName: values.lastname,
+        username: values.username, // Spalk: the username they chose, not their email
         organization: organization,
         requestId: requestId,
       });
@@ -150,6 +152,21 @@ export function RegisterForm({
               label={t("labels.email")}
               error={errors.email?.message as string}
               data-testid="email-text-input"
+            />
+          </div>
+          {/* Spalk: a username, which is public in Spalk, rather than one made from the email */}
+          <div className="col-span-2">
+            <TextInput
+              type="text"
+              autoComplete="username"
+              required
+              {...register("username", {
+                required: t("required.username"),
+                validate: (value: string) => !value.includes("@") || t("errors.usernameIsEmail"),
+              })}
+              label={t("labels.username")}
+              error={errors.username?.message as string}
+              data-testid="username-text-input"
             />
           </div>
         </div>
