@@ -143,6 +143,29 @@ describe("sendPassword", () => {
     expect(result).toEqual({ error: "errors.failedToAuthenticateNoLimit" });
   });
 
+  // Spalk: the organisation the login-name step passed on can be the one the user was just moved out of.
+  test("should look the user up by login name alone, not in the organisation passed on", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue(null);
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: UserState.ACTIVE }],
+    });
+    mockGetLoginSettings.mockResolvedValue({
+      passwordCheckLifetime: { seconds: BigInt(86400) },
+      allowLocalAuthentication: true,
+    });
+    mockCreateSessionAndUpdateCookie.mockRejectedValue(new Error("stop here"));
+
+    await sendPassword({
+      loginName: "testuser",
+      organization: "old-org",
+      checks: create(ChecksSchema, { password: { password: "password123" } }),
+    });
+
+    expect(mockGetSessionCookieByLoginName).toHaveBeenCalledWith({ loginName: "testuser" });
+    expect(mockSearchUsers).toHaveBeenCalledWith(expect.not.objectContaining({ organizationId: expect.anything() }));
+    expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalled();
+  });
+
   test("should create session and verify password when no session exists", async () => {
     // 1. No existing session
     mockGetSessionCookieByLoginName.mockResolvedValue(null);

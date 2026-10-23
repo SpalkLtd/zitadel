@@ -65,10 +65,10 @@ export async function resetPassword(command: ResetPasswordCommand) {
     return { error: t("errors.passwordResetNotAllowed") };
   }
 
+  // Spalk: by login name alone, as in sendPassword, so that a user Spalk has just moved is found.
   const searchResult = await searchUsers({
     serviceConfig,
     searchValue: command.loginName,
-    organizationId: command.organization,
     loginSettings,
   });
 
@@ -168,9 +168,12 @@ export async function sendPassword(
     };
   };
 
+  // Spalk: the user is looked up by login name alone, here and in the search below. command.organization is
+  // where the login-name step found them, which can still be the organisation Spalk has just moved them out of
+  // (MoveUser, at first login); scoped to it, they are unknown. Usernames are unique instance-wide
+  // (user_login_must_be_domain is off), so the login name alone finds them.
   let sessionCookie = await getSessionCookieByLoginName({
     loginName: command.loginName,
-    organization: command.organization,
   });
 
   let session;
@@ -249,7 +252,6 @@ export async function sendPassword(
     const searchResult = await searchUsers({
       serviceConfig,
       searchValue: command.loginName,
-      organizationId: command.organization,
       loginSettings: loginSettingsByContext,
     });
 
