@@ -99,3 +99,22 @@ describe("session challenge sanitization", () => {
     expectSanitized(vi.mocked(setSession).mock.calls[0][0].challenges);
   });
 });
+
+// Spalk: a new session's wrong password carries its failed-attempt count, as a session update's does.
+describe("createSessionAndUpdateCookie on a wrong password", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(headers).mockResolvedValue({} as any);
+    vi.mocked(getServiceConfig).mockReturnValue({ serviceConfig: {} } as any);
+  });
+
+  test("rejects with the failed-attempt count", async () => {
+    vi.mocked(createSessionFromChecksAndChallenges).mockRejectedValue({
+      findDetails: () => [{ failedAttempts: 2 }],
+    });
+
+    await expect(createSessionAndUpdateCookie({ checks: {} as any, requestId: undefined })).rejects.toMatchObject({
+      failedAttempts: 2,
+    });
+  });
+});

@@ -234,6 +234,27 @@ describe("handleOIDCFlowInitiation — org-scoped session filtering", () => {
     vi.unstubAllEnvs();
   });
 
+  // Spalk: an invite's registration (prompt=create) takes the invited address, the login hint, as its email.
+  test("should prefill /register's email from loginHint (CREATE prompt)", async () => {
+    const { Prompt } = await import("@zitadel/proto/zitadel/oidc/v2/authorization_pb");
+    mockGetAuthRequest.mockResolvedValue({
+      authRequest: {
+        id: "abc123",
+        uiLocales: [],
+        scope: ["urn:zitadel:iam:org:id:111111"],
+        prompt: [Prompt.CREATE],
+        loginHint: "invitee@example.com",
+      },
+    });
+
+    const res = await handleOIDCFlowInitiation(makeBaseParams({ sessions: [] as any, sessionCookies: [] }));
+
+    const location = new URL(res.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/register");
+    expect(location.searchParams.get("email")).toBe("invitee@example.com");
+    expect(location.searchParams.get("organization")).toBe("111111");
+  });
+
   test("should redirect to /loginname when org scope filters out all sessions (default prompt)", async () => {
     mockGetAuthRequest.mockResolvedValue({
       authRequest: {

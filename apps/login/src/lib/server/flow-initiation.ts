@@ -366,6 +366,10 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
     if (organization) {
       registerUrl.searchParams.set("organization", organization);
     }
+    // Spalk: the hint is the address the person was invited at, which the register page takes as its email.
+    if (authRequest.loginHint) {
+      registerUrl.searchParams.set("email", authRequest.loginHint);
+    }
 
     return NextResponse.redirect(registerUrl);
   }

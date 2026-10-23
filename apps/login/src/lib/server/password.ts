@@ -145,6 +145,29 @@ export async function sendPassword(
 
   recordAuthAttempt("password", command.organization);
 
+  // Spalk: the answer to a wrong password, shared by the session update and the new session below, so that
+  // either one says the password is wrong (upstream's only said it for a new session, which never had the count).
+  const wrongPassword = async (failedAttempts: number, orgId: string | undefined, loginSettings?: LoginSettings) => {
+    recordAuthFailure("password", "invalid_password", command.organization);
+    if (loginSettings?.ignoreUnknownUsernames) {
+      return { error: t("errors.failedToAuthenticateNoLimit") };
+    }
+    const lockoutSettings = await getLockoutSettings({ serviceConfig, orgId });
+
+    const hasLimit =
+      lockoutSettings?.maxPasswordAttempts !== undefined && lockoutSettings?.maxPasswordAttempts > BigInt(0);
+    const locked = hasLimit && failedAttempts >= lockoutSettings?.maxPasswordAttempts;
+    const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
+
+    return {
+      error: t(messageKey, {
+        failedAttempts,
+        maxPasswordAttempts: hasLimit ? String(lockoutSettings?.maxPasswordAttempts ?? 0) : "?",
+        lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
+      }),
+    };
+  };
+
   let sessionCookie = await getSessionCookieByLoginName({
     loginName: command.loginName,
     organization: command.organization,
@@ -194,7 +217,12 @@ export async function sendPassword(
         // Force fallback if settings can't be loaded
         throw new Error("Could not load login settings");
       }
-    } catch {
+    } catch (error: any) {
+      // Spalk: a wrong password is answered here. Falling back to a new session would check it a second time,
+      // counting it twice, and lose the count the message needs.
+      if ("failedAttempts" in error && error.failedAttempts) {
+        return wrongPassword(error.failedAttempts, sessionCookie?.organization, loginSettingsByUser);
+      }
       logger.warn("[Password] Could not update session");
       // If the session was terminated or any other error occurred during update,
       // we fall back to creating a new session.
@@ -280,24 +308,7 @@ export async function sendPassword(
         sessionCookie = result.sessionCookie;
       } catch (error: any) {
         if ("failedAttempts" in error && error.failedAttempts) {
-          recordAuthFailure("password", "invalid_password", command.organization);
-          if (loginSettingsByContext?.ignoreUnknownUsernames) {
-            return { error: t("errors.failedToAuthenticateNoLimit") };
-          }
-          const lockoutSettings = await getLockoutSettings({ serviceConfig, orgId: command.organization });
-
-          const hasLimit =
-            lockoutSettings?.maxPasswordAttempts !== undefined && lockoutSettings?.maxPasswordAttempts > BigInt(0);
-          const locked = hasLimit && error.failedAttempts >= lockoutSettings?.maxPasswordAttempts;
-          const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
-
-          return {
-            error: t(messageKey, {
-              failedAttempts: error.failedAttempts,
-              maxPasswordAttempts: hasLimit ? String(lockoutSettings?.maxPasswordAttempts ?? 0) : "?",
-              lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
-            }),
-          };
+          return wrongPassword(error.failedAttempts, command.organization, loginSettingsByContext);
         }
         recordAuthFailure("password", "session_creation_failed", command.organization);
         if (loginSettingsByContext?.ignoreUnknownUsernames) {

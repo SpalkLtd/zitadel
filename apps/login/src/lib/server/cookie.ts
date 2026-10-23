@@ -64,12 +64,13 @@ export async function createSessionAndUpdateCookie(command: {
     } as Duration; // for usecases where the lifetime is not specified (user discovery)
   }
 
+  // Spalk: a wrong password carries its failed-attempt count here too, as it does for setSessionAndUpdateCookie.
   const createdSession = await createSessionFromChecksAndChallenges({
     serviceConfig,
     checks: command.checks,
     lifetime: sessionLifetime,
     challenges: sanitizeChallenges(command.challenges),
-  });
+  }).catch(passwordAttemptsHandler);
 
   if (createdSession) {
     return getSession({
