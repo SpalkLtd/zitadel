@@ -1,15 +1,24 @@
 "use server";
 
 import { createSessionAndUpdateCookie, createSessionForIdpAndUpdateCookie } from "@/lib/server/cookie";
-import { addHumanUser, addIDPLink, getLoginSettings, getUserByID, listAuthenticationMethodTypes } from "@/lib/zitadel";
+import {
+  addHumanUser,
+  createUser,
+  getLoginSettings,
+  getUserByID,
+  listAuthenticationMethodTypes,
+  retrieveIDPIntent,
+} from "@/lib/zitadel";
 import { Code, ConnectError, Duration, create } from "@zitadel/client";
 import { Factors } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksJson, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { SetHumanProfileSchema } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import crypto from "crypto";
 import { getTranslations } from "next-intl/server";
 import { cookies, headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
 import { getOrSetFingerprintId } from "../fingerprint";
+import { buildCreateUserRequest } from "../idp-create-user";
 import { createLogger } from "../logger";
 import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
@@ -243,26 +252,43 @@ export async function registerUserAndLinkToIDP(
     return { error: t("errors.registerNotAllowed") };
   }
 
-  const addUserResponse = await addHumanUser({
+  // Spalk: the user is created as login v2's auto-creation creates one, from the
+  // IdP intent, retrieved again here: with the IdP's email, verified as the IdP
+  // says, and the IdP link, in one call. Only the names come from the form,
+  // which the IdP left out. Upstream created the user from the form, its email
+  // unverified and editable, then linked the IdP in a second call, which
+  // Spalk's user-creation hook refuses for an unverified email, leaving a user
+  // with neither a password nor a link. The form's email is not used.
+  const intent = await retrieveIDPIntent({
     serviceConfig,
-    email: command.email,
-    firstName: command.firstName,
-    lastName: command.lastName,
-    organization: command.organization,
+    id: command.idpIntent.idpIntentId,
+    token: command.idpIntent.idpIntentToken,
+  }).catch((error) => {
+    logger.error("Failed to retrieve the IDP intent", { error });
+    return undefined;
+  });
+  const createUserRequest = intent ? buildCreateUserRequest(intent, command.organization) : undefined;
+  if (!createUserRequest || createUserRequest.userType.case !== "human") {
+    return { error: t("errors.couldNotCreateUser") };
+  }
+  const human = createUserRequest.userType.value;
+  human.profile = create(SetHumanProfileSchema, {
+    ...human.profile,
+    givenName: command.firstName,
+    familyName: command.lastName,
   });
 
-  const idpLink = await addIDPLink({
-    serviceConfig,
-    idp: {
-      id: command.idpId,
-      userId: command.idpUserId,
-      userName: command.idpUserName,
-    },
-    userId: addUserResponse.userId,
-  });
-
-  if (!idpLink) {
-    return { error: t("errors.couldNotLinkIDP") };
+  const addUserResponse = await createUser({ serviceConfig, request: createUserRequest })
+    .then((response) => ({ userId: response.id }))
+    .catch((error) => {
+      logger.error("Failed to create user", { error });
+      return alreadyExistsMessage(error) ?? null;
+    });
+  if (!addUserResponse) {
+    return { error: t("errors.couldNotCreateUser") };
+  }
+  if (typeof addUserResponse === "string") {
+    return { error: addUserResponse };
   }
 
   const session = await createSessionForIdpAndUpdateCookie({
