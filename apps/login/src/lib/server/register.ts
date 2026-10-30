@@ -23,7 +23,12 @@ const RETRY_DELAYS_MS = [500, 1000, 2000];
  * After user creation, backend projections (users, login_names) may not be updated yet.
  * This helper retries createSessionAndUpdateCookie on NotFound errors with increasing delays.
  */
-async function createSessionWithRetry(command: { checks: Checks; requestId: string | undefined; lifetime?: Duration }) {
+async function createSessionWithRetry(command: {
+  checks: Checks;
+  requestId: string | undefined;
+  lifetime?: Duration;
+  remember?: boolean;
+}) {
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_SESSION_RETRIES; attempt++) {
     try {
@@ -63,6 +68,7 @@ type RegisterUserCommand = {
   password?: string;
   organization: string;
   requestId?: string;
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
 
 export type RegisterUserResponse = {
@@ -129,6 +135,8 @@ export async function registerUser(
     checks,
     requestId: command.requestId,
     lifetime: command.password ? loginSettings?.passwordCheckLifetime : undefined,
+    // Spalk: only a password registration asks; a passkey one has no credential yet
+    remember: command.password ? !!command.remember : undefined,
   }).catch((error) => {
     logger.error("Failed to create session after user creation", { error });
     return null;

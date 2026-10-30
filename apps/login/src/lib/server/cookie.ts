@@ -1,6 +1,6 @@
 "use server";
 
-import { addSessionToCookie, updateSessionCookie } from "@/lib/cookies";
+import { addSessionToCookie, takeRememberMeIntentCookie, updateSessionCookie } from "@/lib/cookies";
 import { createLogger } from "@/lib/logger";
 import { sanitizeChallenges } from "@/lib/server/challenges";
 import {
@@ -29,7 +29,53 @@ type CustomCookieData = {
   expirationTs: string;
   changeTs: string;
   requestId?: string; // if its linked to an OIDC flow
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
+
+// Spalk: "Keep me signed in". The session metadata key that records the user's choice ("true" when ticked,
+// absent otherwise), which Spalk's API reads with GetSession for the ID token's `sid`.
+const REMEMBER_ME_METADATA_KEY = "spalk:remember";
+const DEFAULT_UNREMEMBERED_SESSION_LIFETIME_SECONDS = 24 * 60 * 60;
+
+// Spalk: ZITADEL_LOGIN_UNREMEMBERED_SESSION_LIFETIME as seconds: a Go-style duration ("24h", "1h30m", "90s")
+// or a plain number of seconds. Unset or invalid values fall back to 24 hours.
+function unrememberedSessionLifetimeSeconds(): number {
+  const value = process.env.ZITADEL_LOGIN_UNREMEMBERED_SESSION_LIFETIME?.trim();
+  if (!value) {
+    return DEFAULT_UNREMEMBERED_SESSION_LIFETIME_SECONDS;
+  }
+  if (/^\d+$/.test(value)) {
+    return Number(value) || DEFAULT_UNREMEMBERED_SESSION_LIFETIME_SECONDS;
+  }
+  if (!/^(\d+[hms])+$/.test(value)) {
+    logger.warn(`Invalid ZITADEL_LOGIN_UNREMEMBERED_SESSION_LIFETIME "${value}", using 24h`);
+    return DEFAULT_UNREMEMBERED_SESSION_LIFETIME_SECONDS;
+  }
+  const unitSeconds: Record<string, number> = { h: 3600, m: 60, s: 1 };
+  const seconds = (value.match(/\d+[hms]/g) ?? []).reduce(
+    (total, part) => total + Number(part.slice(0, -1)) * unitSeconds[part.slice(-1)],
+    0,
+  );
+  return seconds || DEFAULT_UNREMEMBERED_SESSION_LIFETIME_SECONDS;
+}
+
+// Spalk: a session the user didn't ask to remember lives no longer than the unremembered lifetime, whatever
+// the login policy allows; a remembered one gets the policy's lifetime.
+function lifetimeForRemember(lifetime: Duration, remember: boolean): Duration {
+  const cap = unrememberedSessionLifetimeSeconds();
+  if (remember || Number(lifetime.seconds) + (lifetime.nanos ?? 0) / 1e9 <= cap) {
+    return lifetime;
+  }
+  return { seconds: BigInt(cap), nanos: 0 } as Duration;
+}
+
+// Spalk: the session metadata for an explicit choice; an empty value removes the key.
+function rememberMetadata(remember: boolean | undefined): Record<string, Uint8Array> | undefined {
+  if (remember === undefined) {
+    return undefined;
+  }
+  return { [REMEMBER_ME_METADATA_KEY]: remember ? new TextEncoder().encode("true") : new Uint8Array() };
+}
 
 const passwordAttemptsHandler = (error: ConnectError) => {
   const details = error.findDetails(CredentialsCheckErrorSchema);
@@ -49,6 +95,7 @@ export async function createSessionAndUpdateCookie(command: {
   requestId: string | undefined;
   lifetime?: Duration;
   challenges?: RequestChallenges;
+  remember?: boolean; // Spalk: the user's "Keep me signed in" choice, if they were asked
 }): Promise<{ session: Session; sessionCookie: CustomCookieData; challenges?: Challenges }> {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
@@ -68,8 +115,9 @@ export async function createSessionAndUpdateCookie(command: {
   const createdSession = await createSessionFromChecksAndChallenges({
     serviceConfig,
     checks: command.checks,
-    lifetime: sessionLifetime,
+    lifetime: lifetimeForRemember(sessionLifetime, !!command.remember),
     challenges: sanitizeChallenges(command.challenges),
+    metadata: rememberMetadata(command.remember),
   }).catch(passwordAttemptsHandler);
 
   if (createdSession) {
@@ -90,6 +138,10 @@ export async function createSessionAndUpdateCookie(command: {
 
         if (command.requestId) {
           sessionCookie.requestId = command.requestId;
+        }
+
+        if (command.remember) {
+          sessionCookie.remember = true;
         }
 
         if (response.session.factors.user.organizationId) {
@@ -116,6 +168,7 @@ export async function createSessionForIdpAndUpdateCookie({
   idpIntent,
   requestId,
   lifetime,
+  remember,
 }: {
   userId: string;
   idpIntent: {
@@ -124,6 +177,7 @@ export async function createSessionForIdpAndUpdateCookie({
   };
   requestId: string | undefined;
   lifetime?: Duration;
+  remember?: boolean; // Spalk: defaults to the choice made before leaving for the IdP
 }): Promise<Session> {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
@@ -139,11 +193,15 @@ export async function createSessionForIdpAndUpdateCookie({
     } as Duration;
   }
 
+  // Spalk: the choice the user made before leaving for the IdP
+  const rememberChoice = remember ?? (await takeRememberMeIntentCookie());
+
   const createdSession = await createSessionForUserIdAndIdpIntent({
     serviceConfig,
     userId,
     idpIntent,
-    lifetime: sessionLifetime,
+    lifetime: lifetimeForRemember(sessionLifetime, !!rememberChoice),
+    metadata: rememberMetadata(rememberChoice),
   }).catch((error: ErrorDetail | CredentialsCheckError) => {
     logger.error("Could not set session", { error });
     if ("failedAttempts" in error && error.failedAttempts) {
@@ -183,6 +241,10 @@ export async function createSessionForIdpAndUpdateCookie({
     sessionCookie.requestId = requestId;
   }
 
+  if (rememberChoice) {
+    sessionCookie.remember = true;
+  }
+
   if (session.factors.user.organizationId) {
     sessionCookie.organization = session.factors.user.organizationId;
   }
@@ -205,9 +267,13 @@ export async function setSessionAndUpdateCookie(command: {
   challenges?: RequestChallenges;
   requestId?: string;
   lifetime: Duration;
+  remember?: boolean; // Spalk: the user's "Keep me signed in" choice, if they were asked on this step
 }) {
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
+
+  // Spalk: a step that doesn't ask (e.g. a second factor) keeps the session's earlier choice
+  const remember = command.remember ?? !!command.recentCookie.remember;
 
   return setSession({
     serviceConfig,
@@ -215,7 +281,8 @@ export async function setSessionAndUpdateCookie(command: {
     sessionToken: command.recentCookie.token,
     challenges: sanitizeChallenges(command.challenges),
     checks: command.checks,
-    lifetime: command.lifetime,
+    lifetime: lifetimeForRemember(command.lifetime, remember),
+    metadata: rememberMetadata(command.remember),
   })
     .then((updatedSession) => {
       if (updatedSession) {
@@ -245,7 +312,8 @@ export async function setSessionAndUpdateCookie(command: {
               id: sessionCookie.id,
               token: updatedSession.sessionToken,
               creationTs: sessionCookie.creationTs,
-              expirationTs: sessionCookie.expirationTs,
+              // Spalk: a new lifetime moves the expiration, which the remembered cookie's own expiry follows
+              expirationTs: session.expirationDate ? `${timestampMs(session.expirationDate)}` : sessionCookie.expirationTs,
               // just overwrite the changeDate with the new one
               changeTs: updatedSession.details?.changeDate ? `${timestampMs(updatedSession.details.changeDate)}` : "",
               loginName: session.factors?.user?.loginName ?? "",
@@ -254,6 +322,10 @@ export async function setSessionAndUpdateCookie(command: {
 
             if (sessionCookie.requestId) {
               newCookie.requestId = sessionCookie.requestId;
+            }
+
+            if (remember) {
+              newCookie.remember = true;
             }
 
             const securitySettings = await getSecuritySettings({ serviceConfig });

@@ -134,6 +134,7 @@ export type UpdateSessionCommand = {
   defaultOrganization?: string;
   checks: Checks;
   requestId?: string;
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
 
 export async function sendPassword(
@@ -212,6 +213,7 @@ export async function sendPassword(
           checks: command.checks,
           requestId: command.requestId,
           lifetime,
+          remember: !!command.remember,
         });
       } else {
         // Force fallback if settings can't be loaded
@@ -303,6 +305,7 @@ export async function sendPassword(
           checks,
           requestId: command.requestId,
           lifetime: loginSettingsByContext?.passwordCheckLifetime,
+          remember: !!command.remember,
         });
         session = result.session;
         sessionCookie = result.sessionCookie;
