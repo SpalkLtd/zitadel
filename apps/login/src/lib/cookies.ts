@@ -13,6 +13,16 @@ const logger = createLogger("cookies");
 // the attributes and for the signature that is added to every entry when the cookie is written.
 const MAX_COOKIE_SIZE = 3500;
 
+// Spalk: a session the user chose to remember ("Keep me signed in") is kept in a second, persistent cookie
+// instead of the browser-session "sessions" cookie, so an account that wasn't ticked is never persisted.
+// Every read takes the union of both cookies; every write splits the entries between them by `remember`.
+const SESSIONS_COOKIE_NAME = "sessions";
+const REMEMBERED_SESSIONS_COOKIE_NAME = "sessions_remembered";
+
+// Spalk: carries the "Keep me signed in" choice across the round trip to an external IdP.
+const REMEMBER_ME_INTENT_COOKIE_NAME = "remember_me_intent";
+const REMEMBER_ME_INTENT_MAX_AGE_SECONDS = 60 * 60;
+
 export type Cookie = {
   id: string;
   token: string;
@@ -22,6 +32,7 @@ export type Cookie = {
   expirationTs: string;
   changeTs: string;
   requestId?: string; // if its linked to an OIDC flow
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in", so the entry is persisted
 };
 
 type SessionCookie<T> = Cookie & T;
@@ -40,15 +51,64 @@ async function setSessionHttpOnlyCookie<T>(sessions: SessionCookie<T>[], iFrameE
     resolvedSameSite = "lax";
   }
 
-  return cookiesList.set({
-    name: "sessions",
-    value: JSON.stringify(sessions.map((session) => signSession(session))),
+  const attributes = {
     httpOnly: true,
     path: "/",
     sameSite: resolvedSameSite,
     // "none" is only accepted by browsers together with "secure", otherwise the cookie is silently dropped
     secure: process.env.NODE_ENV === "production" || resolvedSameSite === "none",
+  };
+
+  // Spalk: a remembered entry that has expired goes back to the browser-session cookie, where upstream keeps
+  // expired entries so the account can be picked again; it is no longer kept on the device.
+  const now = Date.now();
+  const remembered = sessions.filter((session) => session.remember && Number(session.expirationTs) > now);
+
+  const result = cookiesList.set({
+    name: SESSIONS_COOKIE_NAME,
+    value: JSON.stringify(
+      sessions.filter((session) => !remembered.includes(session)).map((session) => signSession(session)),
+    ),
+    ...attributes,
   });
+
+  if (remembered.length) {
+    // the cookie lives as long as the longest-lived remembered session
+    const expires = new Date(Math.max(...remembered.map((session) => Number(session.expirationTs))));
+    cookiesList.set({
+      name: REMEMBERED_SESSIONS_COOKIE_NAME,
+      value: JSON.stringify(remembered.map((session) => signSession(session))),
+      expires,
+      ...attributes,
+    });
+  } else if (readRememberedSessionCookies(cookiesList).length) {
+    cookiesList.set({ name: REMEMBERED_SESSIONS_COOKIE_NAME, value: "", expires: new Date(0), ...attributes });
+  }
+
+  return result;
+}
+
+// Spalk: only remembered entries count from the remembered cookie.
+function readRememberedSessionCookies<T>(cookiesList: Awaited<ReturnType<typeof cookies>>): SessionCookie<T>[] {
+  return readSessionCookies<T>(cookiesList.get(REMEMBERED_SESSIONS_COOKIE_NAME)?.value).filter(
+    (session) => session.remember,
+  );
+}
+
+// Spalk: whether either session cookie is present, with or without valid entries.
+async function hasSessionCookie(): Promise<boolean> {
+  const cookiesList = await cookies();
+  return !!(cookiesList.get(SESSIONS_COOKIE_NAME)?.value || cookiesList.get(REMEMBERED_SESSIONS_COOKIE_NAME)?.value);
+}
+
+// Spalk: the union of both session cookies; an entry in both (which writes never produce) is taken once.
+async function readAllSessionCookies<T>(): Promise<SessionCookie<T>[]> {
+  const cookiesList = await cookies();
+  const sessions = readSessionCookies<T>(cookiesList.get(SESSIONS_COOKIE_NAME)?.value);
+  const remembered = readRememberedSessionCookies<T>(cookiesList).filter(
+    (session) => !sessions.some((s) => s.id === session.id),
+  );
+  return [...sessions, ...remembered];
 }
 
 function readSessionCookies<T>(value: string | undefined): SessionCookie<T>[] {
@@ -98,10 +158,7 @@ export async function addSessionToCookie<T>({
   cleanup?: boolean;
   iFrameEnabled?: boolean;
 }): Promise<any> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  let currentSessions: SessionCookie<T>[] = readSessionCookies<T>(stringifiedCookie?.value);
+  let currentSessions: SessionCookie<T>[] = await readAllSessionCookies<T>();
 
   const index = currentSessions.findIndex((s) => s.loginName === session.loginName);
 
@@ -143,10 +200,7 @@ export async function updateSessionCookie<T>({
   cleanup?: boolean;
   iFrameEnabled?: boolean;
 }): Promise<any> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions: SessionCookie<T>[] = stringifiedCookie?.value ? readSessionCookies<T>(stringifiedCookie.value) : [session];
+  const sessions: SessionCookie<T>[] = (await hasSessionCookie()) ? await readAllSessionCookies<T>() : [session];
 
   const foundIndex = sessions.findIndex((session) => session.id === id);
 
@@ -175,10 +229,7 @@ export async function removeSessionFromCookie<T>({
   cleanup?: boolean;
   iFrameEnabled?: boolean;
 }) {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions: SessionCookie<T>[] = stringifiedCookie?.value ? readSessionCookies<T>(stringifiedCookie.value) : [session];
+  const sessions: SessionCookie<T>[] = (await hasSessionCookie()) ? await readAllSessionCookies<T>() : [session];
 
   const reducedSessions = sessions.filter((s) => s.id !== session.id);
   if (cleanup) {
@@ -193,10 +244,7 @@ export async function removeSessionFromCookie<T>({
 }
 
 export async function getMostRecentSessionCookie<T>(): Promise<Cookie | undefined> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions = readSessionCookies<T>(stringifiedCookie?.value);
+  const sessions = await readAllSessionCookies<T>();
   if (!sessions.length) {
     return undefined;
   }
@@ -213,10 +261,7 @@ export async function getSessionCookieById<T>({
   sessionId: string;
   organization?: string;
 }): Promise<SessionCookie<T> | undefined> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions = readSessionCookies<T>(stringifiedCookie?.value);
+  const sessions = await readAllSessionCookies<T>();
   return sessions.find((s) => (organization ? s.organization === organization && s.id === sessionId : s.id === sessionId));
 }
 
@@ -227,10 +272,7 @@ export async function getSessionCookieByLoginName<T>({
   loginName?: string;
   organization?: string;
 }): Promise<SessionCookie<T> | undefined> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions = readSessionCookies<T>(stringifiedCookie?.value);
+  const sessions = await readAllSessionCookies<T>();
   return sessions.find((s) =>
     organization ? s.organization === organization && s.loginName === loginName : s.loginName === loginName,
   );
@@ -252,10 +294,7 @@ export async function getAllSessionCookieIds<T>(cleanup: boolean = false): Promi
  * @returns Session Cookies
  */
 export async function getAllSessions<T>(cleanup: boolean = false): Promise<SessionCookie<T>[]> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions = readSessionCookies<T>(stringifiedCookie?.value);
+  const sessions = await readAllSessionCookies<T>();
 
   if (!sessions.length) {
     logger.info("getAllSessions: No session cookie found, returning empty array");
@@ -285,10 +324,7 @@ export async function getMostRecentCookieWithLoginname<T>({
   loginName?: string;
   organization?: string;
 }): Promise<any> {
-  const cookiesList = await cookies();
-  const stringifiedCookie = cookiesList.get("sessions");
-
-  const sessions = readSessionCookies<T>(stringifiedCookie?.value);
+  const sessions = await readAllSessionCookies<T>();
 
   if (!sessions.length) {
     return undefined;
@@ -311,4 +347,37 @@ export async function getMostRecentCookieWithLoginname<T>({
   return filtered.reduce((prev, current) => {
     return prev.changeTs > current.changeTs ? prev : current;
   });
+}
+
+/**
+ * Spalk: remembers the "Keep me signed in" choice while the user is away at an external IdP, until the
+ * session is created on their return.
+ */
+export async function setRememberMeIntentCookie(remember: boolean) {
+  const cookiesList = await cookies();
+
+  cookiesList.set({
+    name: REMEMBER_ME_INTENT_COOKIE_NAME,
+    value: remember ? "true" : "false",
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: REMEMBER_ME_INTENT_MAX_AGE_SECONDS,
+  });
+}
+
+/**
+ * Spalk: returns the choice stored by setRememberMeIntentCookie, if any, and removes it.
+ */
+export async function takeRememberMeIntentCookie(): Promise<boolean | undefined> {
+  const cookiesList = await cookies();
+  const value = cookiesList.get(REMEMBER_ME_INTENT_COOKIE_NAME)?.value;
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  cookiesList.delete(REMEMBER_ME_INTENT_COOKIE_NAME);
+  return value === "true";
 }
