@@ -1,6 +1,7 @@
 import { Alert } from "@/components/alert";
 import { DynamicTheme } from "@/components/dynamic-theme";
 import { PasswordForm } from "@/components/password-form";
+import { RememberMeProvider } from "@/components/remember-me";
 import { SignInWithIdp } from "@/components/sign-in-with-idp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
@@ -82,42 +83,45 @@ export default async function Page(props: { searchParams: Promise<Record<string 
         ) : null}
       </div>
 
-      <div className="w-full">
-        {/* Only warn when there is no loginName to continue with (e.g. a direct visit
+      {/* Spalk: one "Keep me signed in" choice for the password and the IdPs */}
+      <RememberMeProvider>
+        <div className="w-full">
+          {/* Only warn when there is no loginName to continue with (e.g. a direct visit
             without searchParams). A failed session lookup alone is not an error: the
             form still works via the user-search fallback in sendPassword, and under
             enumeration protection no session exists by design. */}
-        {!loginName && (
-          <div className="py-4">
-            <Alert>
-              <Translated i18nKey="unknownContext" namespace="error" />
-            </Alert>
-          </div>
-        )}
+          {!loginName && (
+            <div className="py-4">
+              <Alert>
+                <Translated i18nKey="unknownContext" namespace="error" />
+              </Alert>
+            </div>
+          )}
 
-        {loginName && (
-          <PasswordForm
-            loginName={loginName}
-            requestId={requestId}
-            organization={organization} // stick to "organization" as we still want to do user discovery based on the searchParams not the default organization, later the organization is determined by the found user
-            defaultOrganization={defaultOrganization}
-            loginSettings={loginSettings}
-          />
-        )}
-
-        {/* Spalk: the IdPs as an alternative to the password, as on the loginname page. */}
-        {loginName && loginSettings?.allowExternalIdp && !!identityProviders?.length && (
-          <div className="w-full pt-6 pb-4">
-            <SignInWithIdp
-              identityProviders={identityProviders}
+          {loginName && (
+            <PasswordForm
+              loginName={loginName}
               requestId={requestId}
-              organization={organization}
-              postErrorRedirectUrl="/loginname"
-              loginHint={loginName}
-            ></SignInWithIdp>
-          </div>
-        )}
-      </div>
+              organization={organization} // stick to "organization" as we still want to do user discovery based on the searchParams not the default organization, later the organization is determined by the found user
+              defaultOrganization={defaultOrganization}
+              loginSettings={loginSettings}
+            />
+          )}
+
+          {/* Spalk: the IdPs as an alternative to the password, as on the loginname page. */}
+          {loginName && loginSettings?.allowExternalIdp && !!identityProviders?.length && (
+            <div className="w-full pt-6 pb-4">
+              <SignInWithIdp
+                identityProviders={identityProviders}
+                requestId={requestId}
+                organization={organization}
+                postErrorRedirectUrl="/loginname"
+                loginHint={loginName}
+              ></SignInWithIdp>
+            </div>
+          )}
+        </div>
+      </RememberMeProvider>
     </DynamicTheme>
   );
 }

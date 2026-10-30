@@ -126,6 +126,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
               organization={organization}
               postErrorRedirectUrl="/loginname"
               loginHint={loginName ?? sessionFactors?.factors?.user?.loginName}
+              showRememberMe // Spalk: the passkey prompt opens on load, so only the IdPs ask
             ></SignInWithIdp>
           </div>
         )}

@@ -14,6 +14,7 @@ import { SignInWithGithub } from "./idps/sign-in-with-github";
 import { SignInWithGitlab } from "./idps/sign-in-with-gitlab";
 import { SignInWithGoogle } from "./idps/sign-in-with-google";
 import { SignInWithZitadel } from "./idps/sign-in-with-zitadel";
+import { RememberMeCheckbox, useRememberMe } from "./remember-me";
 import { Translated } from "./translated";
 
 export interface SignInWithIDPProps {
@@ -26,6 +27,8 @@ export interface SignInWithIDPProps {
   /** Forwarded to the IdP as login_hint so the user does not have to type the identifier again. */
   loginHint?: string;
   showLabel?: boolean;
+  /** Spalk: show the "Keep me signed in" checkbox; without it the choice comes from the page's RememberMeProvider. */
+  showRememberMe?: boolean;
 }
 
 export function SignInWithIdp({
@@ -36,8 +39,10 @@ export function SignInWithIdp({
   postErrorRedirectUrl,
   loginHint,
   showLabel = true,
+  showRememberMe = false,
 }: Readonly<SignInWithIDPProps>) {
   const [state, action, _isPending] = useActionState(redirectToIdp, {});
+  const rememberMe = useRememberMe(); // Spalk
 
   const renderIDPButton = (idp: IdentityProvider, index: number) => {
     const { id, name, type } = idp;
@@ -68,6 +73,7 @@ export function SignInWithIdp({
         {sessionId && <input type="hidden" name="sessionId" value={sessionId} />}
         {postErrorRedirectUrl && <input type="hidden" name="postErrorRedirectUrl" value={postErrorRedirectUrl} />}
         {loginHint && <input type="hidden" name="loginHint" value={loginHint} />}
+        {!sessionId && rememberMe[0] && <input type="hidden" name="remember" value="true" />}
         <Component key={id} name={name} />
       </form>
     ) : null;
@@ -82,6 +88,7 @@ export function SignInWithIdp({
         </p>
       )}
       {!!identityProviders?.length && identityProviders?.map(renderIDPButton)}
+      {showRememberMe && !sessionId && !!identityProviders?.length && <RememberMeCheckbox state={rememberMe} />}
       {state?.error && (
         <div className="py-4">
           <Alert>{state?.error}</Alert>
