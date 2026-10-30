@@ -31,11 +31,12 @@ export default async function Page(props: { searchParams: Promise<Record<string 
   const _headers = await headers();
   const { serviceConfig } = getServiceConfig(_headers);
 
-  // Spalk: the default organisation is needed with an organisation too, to tell whether it is that one.
   let defaultOrganization;
-  const org: Organization | null = await getDefaultOrg({ serviceConfig });
-  if (org) {
-    defaultOrganization = org.id;
+  if (!organization) {
+    const org: Organization | null = await getDefaultOrg({ serviceConfig });
+    if (org) {
+      defaultOrganization = org.id;
+    }
   }
 
   const loginSettings = await getLoginSettings({ serviceConfig, organization: organization ?? defaultOrganization });
@@ -71,9 +72,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             suffix={orgDomain}
             hideSuffix={branding?.hideLoginNameSuffix}
             submit={submit}
-            // Spalk: everyone registers in the default organisation, and the user-creation hook refuses a sign-up into
-            // any other, so an organisation's own login page (its scope, from the Live Sync API) doesn't offer it.
-            allowRegister={!!loginSettings?.allowRegister && (!organization || organization === defaultOrganization)}
+            allowRegister={!!loginSettings?.allowRegister}
           ></UsernameForm>
         )}
 
