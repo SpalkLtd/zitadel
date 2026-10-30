@@ -479,6 +479,28 @@ describe("sendPassword", () => {
     expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: true }));
   });
 
+  test("starts a new session when a remembered one signs in again without remembering", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue({
+      id: "session123",
+      token: "token123",
+      organization: "org123",
+      remember: true,
+    });
+    mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: 1, preferredLoginName: "user@example.com" }],
+    });
+    mockCreateSessionAndUpdateCookie.mockResolvedValue({
+      session: { factors: { user: { id: "user123", loginName: "user@example.com" } } },
+      sessionCookie: { id: "newSession", token: "newToken" },
+    });
+
+    await sendPassword({ loginName: "user@example.com", checks: { password: { password: "password" } } as any });
+
+    expect(mockSetSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: false }));
+  });
+
   test("records an unticked box as a choice", async () => {
     mockGetSessionCookieByLoginName.mockResolvedValue({ id: "session123", token: "token123", organization: "org123" });
     mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });

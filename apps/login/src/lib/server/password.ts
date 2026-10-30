@@ -193,6 +193,12 @@ export async function sendPassword(
     }
   }
 
+  // Spalk: a remembered session can be older than an unremembered one may live, so capping its lifetime would end
+  // it at once; signing in again without "Keep me signed in" starts a new session instead.
+  if (sessionCookie?.remember && !command.remember) {
+    sessionCookie = undefined;
+  }
+
   if (sessionCookie) {
     try {
       loginSettingsByUser = await getLoginSettings({ serviceConfig, organization: sessionCookie.organization });
