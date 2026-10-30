@@ -1112,4 +1112,34 @@ describe("handleOIDCFlowInitiation — idp scope (urn:zitadel:iam:org:idp:id)", 
       }),
     );
   });
+
+  // Spalk: the Live Sync API's organisation IDs are UUIDs, and an organisation's SSO link names it and its IdP.
+  test("should take a UUID organisation scope, and look the scoped IdP up in that organisation", async () => {
+    const { IdentityProviderType } = await import("@zitadel/proto/zitadel/settings/v2/login_settings_pb");
+    const orgId = "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+
+    mockGetAuthRequest.mockResolvedValue({
+      authRequest: {
+        id: "abc123",
+        uiLocales: [],
+        scope: [`urn:zitadel:iam:org:id:${orgId}`, "urn:zitadel:iam:org:idp:id:idp-1"],
+        prompt: [],
+        loginHint: undefined,
+      },
+    });
+
+    mockGetActiveIdentityProviders.mockResolvedValue({
+      identityProviders: [{ id: "idp-1", type: IdentityProviderType.AZURE_AD }],
+    });
+
+    mockStartIdentityProviderFlow.mockResolvedValue({
+      url: "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?client_id=xyz",
+    });
+
+    await handleOIDCFlowInitiation(makeBaseParams({ sessions: [] }));
+
+    expect(mockGetActiveIdentityProviders).toHaveBeenCalledWith(expect.objectContaining({ orgId }));
+    const { successUrl } = mockStartIdentityProviderFlow.mock.calls[0][0].urls;
+    expect(new URL(successUrl).searchParams.get("organization")).toBe(orgId);
+  });
 });
