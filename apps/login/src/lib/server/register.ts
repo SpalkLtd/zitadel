@@ -7,6 +7,7 @@ import {
   getLoginSettings,
   getUserByID,
   listAuthenticationMethodTypes,
+  getIDPByID,
   retrieveIDPIntent,
 } from "@/lib/zitadel";
 import { Code, ConnectError, Duration, create } from "@zitadel/client";
@@ -256,10 +257,6 @@ export async function registerUserAndLinkToIDP(
     return { error: t("errors.couldNotGetLoginSettings") };
   }
 
-  if (!loginSettings.allowRegister) {
-    return { error: t("errors.registerNotAllowed") };
-  }
-
   // Spalk: the user is created as login v2's auto-creation creates one, from the
   // IdP intent, retrieved again here: with the IdP's email, verified as the IdP
   // says, and the IdP link, in one call. Only the names come from the form,
@@ -275,6 +272,27 @@ export async function registerUserAndLinkToIDP(
     logger.error("Failed to retrieve the IDP intent", { error });
     return undefined;
   });
+
+  // Spalk: an IdP sign-up is allowed by the organisation's login settings, as
+  // upstream's, or by the IdP's own "creation allowed", as login v2's other IdP
+  // paths are (idp-intent.ts, register/page.tsx). Spalk's organisations turn
+  // registration off, so the first login through an organisation's own SSO was
+  // refused whenever the IdP left a name out and sent the person to this form.
+  // The IdP is the intent's, not the form's. Spalk's user-creation hook still
+  // refuses a sign-up into an organisation through any IdP but its own.
+  if (!loginSettings.allowRegister) {
+    const idpId = intent?.idpInformation?.idpId;
+    const idp = idpId
+      ? await getIDPByID({ serviceConfig, id: idpId }).catch((error) => {
+          logger.error("Failed to get the IDP", { error });
+          return undefined;
+        })
+      : undefined;
+    if (!idp?.config?.options?.isCreationAllowed) {
+      return { error: t("errors.registerNotAllowed") };
+    }
+  }
+
   const createUserRequest = intent ? buildCreateUserRequest(intent, command.organization) : undefined;
   if (!createUserRequest || createUserRequest.userType.case !== "human") {
     return { error: t("errors.couldNotCreateUser") };

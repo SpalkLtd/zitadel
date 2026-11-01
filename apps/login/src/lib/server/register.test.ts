@@ -22,6 +22,7 @@ vi.mock("../service-url", () => ({
 vi.mock("@/lib/zitadel", () => ({
   addHumanUser: vi.fn(),
   createUser: vi.fn(),
+  getIDPByID: vi.fn(),
   getLoginSettings: vi.fn(),
   getUserByID: vi.fn(),
   listAuthenticationMethodTypes: vi.fn(),
@@ -61,6 +62,7 @@ const command = {
 // complete-registration form for it.
 function intentWithoutFamilyName() {
   return {
+    idpInformation: { idpId: "org-sso" },
     userAction: {
       case: "createUser",
       value: create(CreateUserRequestSchema, {
@@ -123,6 +125,44 @@ describe("registerUserAndLinkToIDP", () => {
 
     expect(result).toEqual({ error: "An account with this email already exists." });
     expect(cookie.createSessionForIdpAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  // Spalk's organisations turn registration off: their own SSO's sign-up goes by the IdP's setting
+  describe("with registration off in the organisation's login settings", () => {
+    beforeEach(() => {
+      vi.mocked(zitadel.getLoginSettings).mockResolvedValue({ allowRegister: false } as any);
+    });
+
+    test("creates the user when the IdP allows creation", async () => {
+      vi.mocked(zitadel.getIDPByID).mockResolvedValue({ config: { options: { isCreationAllowed: true } } } as any);
+
+      const result = await registerUserAndLinkToIDP(command);
+
+      expect(result).toEqual({ redirect: "/done" });
+      expect(zitadel.getIDPByID).toHaveBeenCalledWith({ serviceConfig: {}, id: "org-sso" });
+      expect(zitadel.createUser).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([
+      ["the IdP doesn't allow creation", () => ({ config: { options: { isCreationAllowed: false } } })],
+      ["the IdP can't be read", () => Promise.reject(new Error("down"))],
+    ])("refuses when %s", async (_, idp) => {
+      vi.mocked(zitadel.getIDPByID).mockImplementation(async () => idp() as any);
+
+      const result = await registerUserAndLinkToIDP(command);
+
+      expect(result).toEqual({ error: "errors.registerNotAllowed" });
+      expect(zitadel.createUser).not.toHaveBeenCalled();
+    });
+
+    test("refuses an intent that can't be retrieved, without asking for an IdP", async () => {
+      vi.mocked(zitadel.retrieveIDPIntent).mockRejectedValue(new Error("expired"));
+
+      const result = await registerUserAndLinkToIDP(command);
+
+      expect(result).toEqual({ error: "errors.registerNotAllowed" });
+      expect(zitadel.getIDPByID).not.toHaveBeenCalled();
+    });
   });
 
   test("an intent that can't be retrieved creates nobody", async () => {
