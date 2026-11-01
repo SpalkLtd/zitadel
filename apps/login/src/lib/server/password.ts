@@ -134,6 +134,7 @@ export type UpdateSessionCommand = {
   defaultOrganization?: string;
   checks: Checks;
   requestId?: string;
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
 
 export async function sendPassword(
@@ -195,6 +196,12 @@ export async function sendPassword(
     }
   }
 
+  // Spalk: a remembered session can be older than an unremembered one may live, so capping its lifetime would end
+  // it at once; signing in again without "Keep me signed in" starts a new session instead.
+  if (sessionCookie?.remember && !command.remember) {
+    sessionCookie = undefined;
+  }
+
   if (sessionCookie) {
     try {
       loginSettingsByUser = await getLoginSettings({ serviceConfig, organization: sessionCookie.organization });
@@ -215,6 +222,7 @@ export async function sendPassword(
           checks: command.checks,
           requestId: command.requestId,
           lifetime,
+          remember: !!command.remember,
         });
       } else {
         // Force fallback if settings can't be loaded
@@ -305,6 +313,7 @@ export async function sendPassword(
           checks,
           requestId: command.requestId,
           lifetime: loginSettingsByContext?.passwordCheckLifetime,
+          remember: !!command.remember,
         });
         session = result.session;
         sessionCookie = result.sessionCookie;

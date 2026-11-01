@@ -14,6 +14,7 @@ import { AutoSubmitForm } from "./auto-submit-form";
 import { BackButton } from "./back-button";
 import { Button, ButtonVariants } from "./button";
 import { TextInput } from "./input";
+import { RememberMeCheckbox, useRememberMe } from "./remember-me";
 import { Spinner } from "./spinner";
 import { Translated } from "./translated";
 
@@ -44,6 +45,8 @@ export function PasswordForm({ loginSettings, loginName, organization, defaultOr
 
   const router = useRouter();
 
+  const rememberMe = useRememberMe(); // Spalk
+
   async function submitPassword(values: Inputs) {
     setError("");
     setLoading(true);
@@ -57,6 +60,7 @@ export function PasswordForm({ loginSettings, loginName, organization, defaultOr
           password: { password: values.password },
         }),
         requestId,
+        remember: rememberMe[0], // Spalk
       });
 
       handleServerActionResponse(response, router, setSamlData, setError);
@@ -135,6 +139,8 @@ export function PasswordForm({ loginSettings, loginName, organization, defaultOr
 
           {loginName && <input type="hidden" name="loginName" autoComplete="username" value={loginName} />}
         </div>
+
+        <RememberMeCheckbox state={rememberMe} />
 
         {info && (
           <div className="py-4">

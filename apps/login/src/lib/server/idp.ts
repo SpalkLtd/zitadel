@@ -12,7 +12,7 @@ import crypto from "crypto";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { completeFlowOrGetUrl } from "../client";
-import { getSessionCookieById } from "../cookies";
+import { getSessionCookieById, setRememberMeIntentCookie } from "../cookies";
 import { getOrSetFingerprintId } from "../fingerprint";
 import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
@@ -36,6 +36,7 @@ export async function redirectToIdp(prevState: RedirectToIdpState, formData: For
   const provider = formData.get("provider") as string;
   const postErrorRedirectUrl = formData.get("postErrorRedirectUrl") as string;
   const loginHint = formData.get("loginHint") as string;
+  const remember = formData.get("remember") === "true";
 
   if (sessionId) {
     try {
@@ -60,6 +61,9 @@ export async function redirectToIdp(prevState: RedirectToIdpState, formData: For
   if (requestId) params.set("requestId", requestId);
   if (organization) params.set("organization", organization);
   if (postErrorRedirectUrl) params.set("postErrorRedirectUrl", postErrorRedirectUrl);
+
+  // Spalk: the session is created when the user comes back from the IdP, so the choice waits in a cookie
+  await setRememberMeIntentCookie(remember);
 
   // redirect to LDAP page where username and password is requested
   if (provider === "ldap") {

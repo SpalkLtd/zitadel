@@ -46,6 +46,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
             organization={organization}
             postErrorRedirectUrl="/idp"
             showLabel={false}
+            showRememberMe // Spalk
           ></SignInWithIdp>
         )}
       </div>

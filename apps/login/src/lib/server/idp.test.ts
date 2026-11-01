@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/cookies", () => ({
   getSessionCookieById: vi.fn(),
+  setRememberMeIntentCookie: vi.fn(),
 }));
 
 vi.mock("../service-url", () => ({
@@ -266,6 +267,37 @@ describe("redirectToIdp", () => {
       const callArgs = mockStartIdentityProviderFlow.mock.calls[0][0];
       expect(callArgs.urls.successUrl).toContain("postErrorRedirectUrl=%2Floginname");
       expect(callArgs.urls.failureUrl).toContain("postErrorRedirectUrl=%2Floginname");
+    });
+  });
+
+  // Spalk: the "Keep me signed in" choice waits in a cookie while the user is at the IdP.
+  describe("remember me", () => {
+    async function redirectWith(fields: Record<string, string>) {
+      const formData = new FormData();
+      formData.append("id", "idp123");
+      formData.append("provider", "google");
+      for (const [key, value] of Object.entries(fields)) {
+        formData.append(key, value);
+      }
+      mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
+
+      await expect(redirectToIdp(undefined, formData)).rejects.toThrow("REDIRECT:");
+    }
+
+    test("stores a ticked box before leaving for the IdP", async () => {
+      const { setRememberMeIntentCookie } = await import("@/lib/cookies");
+
+      await redirectWith({ remember: "true" });
+
+      expect(setRememberMeIntentCookie).toHaveBeenCalledWith(true);
+    });
+
+    test("stores an unticked box, replacing an earlier choice", async () => {
+      const { setRememberMeIntentCookie } = await import("@/lib/cookies");
+
+      await redirectWith({});
+
+      expect(setRememberMeIntentCookie).toHaveBeenCalledWith(false);
     });
   });
 

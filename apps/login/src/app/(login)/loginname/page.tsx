@@ -85,6 +85,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
               postErrorRedirectUrl="/loginname"
               loginHint={idpLoginHint}
               showLabel={loginSettings?.allowLocalAuthentication}
+              showRememberMe // Spalk
             ></SignInWithIdp>
           </div>
         )}

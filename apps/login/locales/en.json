@@ -1,7 +1,8 @@
 {
   "common": {
     "back": "Back",
-    "title": "Login with Zitadel"
+    "title": "Login with Zitadel",
+    "rememberMe": "Keep me signed in on this device"
   },
   "accounts": {
     "title": "Accounts",

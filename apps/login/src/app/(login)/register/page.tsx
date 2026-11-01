@@ -119,6 +119,7 @@ export default async function Page(props: { searchParams: Promise<Record<string 
               identityProviders={identityProviders}
               requestId={requestId}
               organization={organization}
+              showRememberMe // Spalk
             ></SignInWithIdp>
           </>
         )}
