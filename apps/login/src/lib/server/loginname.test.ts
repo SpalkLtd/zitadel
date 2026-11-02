@@ -2,6 +2,7 @@ import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { setRememberMeIntentCookie } from "../cookies";
 import { getIDPByID } from "../zitadel";
 import { sendLoginname } from "./loginname";
 
@@ -32,6 +33,10 @@ vi.mock("../zitadel", () => ({
   listIDPLinks: vi.fn(),
   searchUsers: vi.fn(),
   startIdentityProviderFlow: vi.fn(),
+}));
+
+vi.mock("../cookies", () => ({
+  setRememberMeIntentCookie: vi.fn(),
 }));
 
 vi.mock("./cookie", () => ({
@@ -126,6 +131,25 @@ describe("sendLoginname", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Spalk
+  describe("Keep me signed in", () => {
+    test.each([true, false])("stores the choice remember=%s for the next page", async (remember) => {
+      mockGetLoginSettings.mockResolvedValue(null);
+
+      await sendLoginname({ loginName: "user@example.com", remember });
+
+      expect(setRememberMeIntentCookie).toHaveBeenCalledWith(remember);
+    });
+
+    test("leaves the choice alone when not asked", async () => {
+      mockGetLoginSettings.mockResolvedValue(null);
+
+      await sendLoginname({ loginName: "user@example.com" });
+
+      expect(setRememberMeIntentCookie).not.toHaveBeenCalled();
+    });
   });
 
   describe("Error cases", () => {

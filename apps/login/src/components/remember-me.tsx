@@ -11,8 +11,8 @@ type RememberMeState = [boolean, Dispatch<SetStateAction<boolean>>];
 
 const RememberMeContext = createContext<RememberMeState | null>(null);
 
-export function RememberMeProvider({ children }: { children: ReactNode }) {
-  const state = useState<boolean>(false);
+export function RememberMeProvider({ children, initial = false }: { children: ReactNode; initial?: boolean }) {
+  const state = useState<boolean>(initial);
   return <RememberMeContext.Provider value={state}>{children}</RememberMeContext.Provider>;
 }
 

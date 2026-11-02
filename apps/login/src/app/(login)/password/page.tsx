@@ -5,6 +5,7 @@ import { RememberMeProvider } from "@/components/remember-me";
 import { SignInWithIdp } from "@/components/sign-in-with-idp";
 import { Translated } from "@/components/translated";
 import { UserAvatar } from "@/components/user-avatar";
+import { getRememberMeIntentCookie } from "@/lib/cookies";
 import { getServiceConfig } from "@/lib/service-url";
 import { loadMostRecentSession } from "@/lib/session";
 import { getActiveIdentityProviders, getBrandingSettings, getDefaultOrg, getLoginSettings } from "@/lib/zitadel";
@@ -83,8 +84,8 @@ export default async function Page(props: { searchParams: Promise<Record<string 
         ) : null}
       </div>
 
-      {/* Spalk: one "Keep me signed in" choice for the password and the IdPs */}
-      <RememberMeProvider>
+      {/* Spalk: one "Keep me signed in" choice for the password and the IdPs, ticked if it was on the loginname page */}
+      <RememberMeProvider initial={await getRememberMeIntentCookie()}>
         <div className="w-full">
           {/* Only warn when there is no loginName to continue with (e.g. a direct visit
             without searchParams). A failed session lookup alone is not an error: the

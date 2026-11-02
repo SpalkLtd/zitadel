@@ -368,6 +368,14 @@ export async function setRememberMeIntentCookie(remember: boolean) {
 }
 
 /**
+ * Spalk: returns the choice stored by setRememberMeIntentCookie, leaving it in place.
+ */
+export async function getRememberMeIntentCookie(): Promise<boolean> {
+  const cookiesList = await cookies();
+  return cookiesList.get(REMEMBER_ME_INTENT_COOKIE_NAME)?.value === "true";
+}
+
+/**
  * Spalk: returns the choice stored by setRememberMeIntentCookie, if any, and removes it.
  */
 export async function takeRememberMeIntentCookie(): Promise<boolean | undefined> {

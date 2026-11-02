@@ -12,6 +12,7 @@ import { idpTypeToIdentityProviderType, idpTypeToSlug } from "../idp";
 import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { IDPLink } from "@zitadel/proto/zitadel/user/v2/idp_pb";
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
+import { setRememberMeIntentCookie } from "../cookies";
 import { getServiceConfig } from "../service-url";
 import {
   getActiveIdentityProviders,
@@ -36,6 +37,7 @@ export type SendLoginnameCommand = {
   organization?: string;
   defaultOrganization?: string;
   suffix?: string;
+  remember?: boolean; // Spalk: the user's "Keep me signed in" choice on the loginname page
 };
 
 const ORG_SUFFIX_REGEX = /(?<=@)(.+)/;
@@ -45,6 +47,11 @@ export async function sendLoginname(command: SendLoginnameCommand) {
   const { serviceConfig } = getServiceConfig(_headers);
 
   const t = await getTranslations("loginname");
+
+  // Spalk: the choice follows the user to the password page, which starts ticked, or to an IdP it sends them to
+  if (command.remember !== undefined) {
+    await setRememberMeIntentCookie(command.remember);
+  }
 
   const loginSettingsByContext = await getLoginSettings({ serviceConfig, organization: command.organization });
 

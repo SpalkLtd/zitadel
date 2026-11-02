@@ -2,6 +2,7 @@ import { sendPassword } from "@/lib/server/password";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { PasswordForm } from "./password-form";
+import { RememberMeProvider } from "./remember-me";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -44,5 +45,15 @@ describe("PasswordForm", () => {
     fireEvent.click(getByTestId("submit-button"));
 
     await waitFor(() => expect(sendPassword).toHaveBeenCalledWith(expect.objectContaining({ remember })));
+  });
+
+  // Spalk: ticked on the loginname page
+  test("starts ticked when the page's choice is on", () => {
+    const { getByTestId } = render(
+      <RememberMeProvider initial>
+        <PasswordForm loginSettings={undefined} loginName="test@example.com" />
+      </RememberMeProvider>,
+    );
+    expect(getByTestId("remember-me-checkbox")).toBeChecked();
   });
 });

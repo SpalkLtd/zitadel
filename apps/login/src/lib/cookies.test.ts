@@ -7,6 +7,7 @@ import {
   getLanguageCookie,
   getMostRecentCookieWithLoginname,
   getMostRecentSessionCookie,
+  getRememberMeIntentCookie,
   getSessionCookieById,
   getSessionCookieByLoginName,
   removeSessionFromCookie,
@@ -1120,6 +1121,18 @@ describe("cookies", () => {
       mockCookies.get.mockReturnValue(undefined);
       mockCookies.delete.mockClear();
       await expect(takeRememberMeIntentCookie()).resolves.toBeUndefined();
+      expect(mockCookies.delete).not.toHaveBeenCalled();
+    });
+
+    it("lets the password page read the choice without taking it", async () => {
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "true" } : undefined));
+      await expect(getRememberMeIntentCookie()).resolves.toBe(true);
+
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "false" } : undefined));
+      await expect(getRememberMeIntentCookie()).resolves.toBe(false);
+
+      mockCookies.get.mockReturnValue(undefined);
+      await expect(getRememberMeIntentCookie()).resolves.toBe(false);
       expect(mockCookies.delete).not.toHaveBeenCalled();
     });
   });
