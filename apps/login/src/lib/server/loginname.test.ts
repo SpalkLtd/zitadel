@@ -748,6 +748,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp-entra", type: "OIDC", options: { isCreationAllowed: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-sso" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://entra.example.com/auth" });
 
       const result = await sendLoginname({
@@ -851,6 +853,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp123", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "org123" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -880,6 +884,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp456", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-789" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://company-idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -921,6 +927,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp789", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-101" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://example-idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -929,6 +937,33 @@ describe("sendLoginname", () => {
       });
 
       expect(result).toEqual({ redirect: "https://example-idp.example.com/auth" });
+    });
+
+    // Spalk: an organisation's page sends an unknown login name only to a provider the organisation owns
+    test.each([
+      ["an instance-wide provider", () => mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "instance123" } })],
+      ["a provider that can't be read", () => mockGetIDPByID.mockRejectedValue(new Error("unavailable"))],
+    ])("should not redirect an unknown user on an organisation's page to %s", async (_, mockOwner) => {
+      mockGetLoginSettings.mockResolvedValue({
+        allowRegister: false,
+        allowLocalAuthentication: true,
+      });
+      mockGetActiveIdentityProviders.mockResolvedValue({
+        identityProviders: [{ id: "google123", type: "GOOGLE", options: { isCreationAllowed: true } }],
+      });
+      mockOwner();
+
+      const result = await sendLoginname({
+        loginName: "someone",
+        organization: "org123",
+      });
+
+      expect(result).toEqual({ error: "errors.userNotFound" });
+      expect(mockGetIDPByID).toHaveBeenCalledWith({
+        serviceConfig: { baseUrl: "https://api.example.com" },
+        id: "google123",
+      });
+      expect(mockStartIdentityProviderFlow).not.toHaveBeenCalled();
     });
 
     test("should return error when allowRegister: false, allowLocalAuthentication: true, discovered org but no active IDP", async () => {
@@ -1020,6 +1055,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp123", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-456" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth?org=discovered-org-456" });
 
       const result = await sendLoginname({

@@ -137,9 +137,24 @@ export async function sendLoginname(command: SendLoginnameCommand) {
 
     // If no IDP links exist for the user (or no userId provided), try to get active IDPs from the organization
     if (identityProviders.length === 0) {
-      const activeIdps = await getActiveIdentityProviders({ serviceConfig, orgId: organization }).then((resp) => {
+      let activeIdps = await getActiveIdentityProviders({ serviceConfig, orgId: organization }).then((resp) => {
         return resp.identityProviders.filter((idp) => idp.options?.isAutoCreation || idp.options?.isCreationAllowed);
       });
+
+      // Spalk: an unknown login name on an organisation's page goes on only to an identity provider that
+      // organisation owns, its SSO, whose first login creates the person there. An instance-wide one, such as
+      // Google, can't sign anyone up into the organisation (Spalk's user-creation hook refuses it), so sending
+      // them there only confuses: they get "user not found" instead. A provider that can't be read isn't used.
+      if (!userId && organization) {
+        const owners = await Promise.all(
+          activeIdps.map((idp) =>
+            getIDPByID({ serviceConfig, id: idp.id })
+              .then((found) => found?.details?.resourceOwner)
+              .catch(() => undefined),
+          ),
+        );
+        activeIdps = activeIdps.filter((_, i) => owners[i] === organization);
+      }
 
       // If exactly one active IDP exists in the organization, redirect to it
       if (activeIdps.length === 1) {
