@@ -16,9 +16,11 @@ vi.mock("@zitadel/client", () => ({
   timestampDate: vi.fn((ts: { seconds: bigint | number }) => new Date(Number(ts.seconds) * 1000)),
   ConnectError: class extends Error {
     code: any;
+    rawMessage: string;
     constructor(message: string, code: any) {
       super(message);
       this.code = code;
+      this.rawMessage = message;
     }
   },
   Code: {
@@ -1030,6 +1032,26 @@ describe("processIDPCallback", () => {
       const result = await processIDPCallback(defaultParams);
 
       expect(result.redirect).toContain("/idp/google/failure");
+      expect(result.redirect).toContain("error=user_creation_failed");
+    });
+
+    test("should show the message of a user-creation hook that refuses the sign-up", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockCreateUser.mockRejectedValue(
+        new ConnectError("An account with this email already exists. (EXEC-reUaUZCzCp)", 6),
+      );
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(result).toEqual({ error: "An account with this email already exists." });
+    });
+
+    test("should keep the generic failure for a Connect error that is not a hook refusal", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockCreateUser.mockRejectedValue(new ConnectError("Errors.Internal (USER-abc12)", 13));
+
+      const result = await processIDPCallback(defaultParams);
+
       expect(result.redirect).toContain("error=user_creation_failed");
     });
 
