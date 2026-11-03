@@ -32,7 +32,7 @@ import { getEnrollmentAuthorizationError } from "./enrollment-guard";
 import { createNewSessionFromIdpIntent } from "./idp";
 import { syncInstanceRolesFromIdpIntent } from "./instance-roles";
 // Spalk: buildCreateUserRequest moved to a module the registration action shares
-import { buildCreateUserRequest } from "../idp-create-user";
+import { buildCreateUserRequest, withoutCreateEmailCode } from "../idp-create-user";
 
 const logger = createLogger("idp-intent");
 
@@ -632,7 +632,9 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
       return { redirect: `/idp/${provider}/complete-registration?${params}` };
     }
 
-    const createUserRequest = buildCreateUserRequest(intent, orgToRegisterOn);
+    // Spalk: the sign-in below sends the only email code (withoutCreateEmailCode)
+    const builtRequest = buildCreateUserRequest(intent, orgToRegisterOn);
+    const createUserRequest = builtRequest && withoutCreateEmailCode(builtRequest);
 
     if (!createUserRequest) {
       logger.error("Could not build create user request from intent");
