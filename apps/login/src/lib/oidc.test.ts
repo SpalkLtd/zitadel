@@ -1,3 +1,4 @@
+import { ErrorReason } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loginWithOIDCAndSession } from "./oidc";
 import * as loginnameModule from "./server/loginname";
@@ -169,6 +170,59 @@ describe("loginWithOIDCAndSession", () => {
       expect(result.redirect).toContain("loginName=test%40example.com");
       expect(result.redirect).toContain("organization=org-123");
     }
+  });
+
+  // Spalk: a user outside the auth request's organisation is refused with access_denied to the app.
+  it("should fail the auth request with access_denied when the user isn't in the requested organisation", async () => {
+    const { ConnectError, create } = await import("@zitadel/client");
+    vi.mocked(create).mockImplementation(((_schema: unknown, init: unknown) => init) as any);
+    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
+    vi.mocked(zitadelModule.createCallback)
+      .mockRejectedValueOnce(new ConnectError("Errors.User.NotAllowedOrg (COMMAND-59ljd)", 9))
+      .mockResolvedValueOnce({
+        callbackUrl: "https://app.example.com/callback?error=access_denied",
+      } as any);
+
+    const result = await loginWithOIDCAndSession({
+      serviceUrl: mockServiceUrl,
+      authRequest: mockAuthRequest,
+      sessionId: mockSessionId,
+      sessions: mockSessions,
+      sessionCookies: mockCookies,
+    } as any);
+
+    expect(result).toEqual({ redirect: "https://app.example.com/callback?error=access_denied" });
+    expect(zitadelModule.createCallback).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(zitadelModule.createCallback).mock.calls[1][0].req).toEqual({
+      authRequestId: mockAuthRequest,
+      callbackKind: {
+        case: "error",
+        value: {
+          error: ErrorReason.ACCESS_DENIED,
+          errorDescription: "This account isn't a member of the organisation it tried to log in to",
+        },
+      },
+    });
+    expect(zitadelModule.getLoginSettings).not.toHaveBeenCalled();
+  });
+
+  it("should return an error when failing the auth request for the wrong organisation fails", async () => {
+    const { ConnectError } = await import("@zitadel/client");
+    vi.mocked(sessionModule.isSessionValid).mockResolvedValue(true);
+    vi.mocked(zitadelModule.createCallback)
+      .mockRejectedValueOnce(new ConnectError("Errors.User.NotAllowedOrg (COMMAND-59ljd)", 9))
+      .mockRejectedValueOnce(new ConnectError("Errors.AuthRequest.AlreadyHandled", 9));
+
+    const result = await loginWithOIDCAndSession({
+      serviceUrl: mockServiceUrl,
+      authRequest: mockAuthRequest,
+      sessionId: mockSessionId,
+      sessions: mockSessions,
+      sessionCookies: mockCookies,
+    } as any);
+
+    expect(result).toEqual({ error: "This account isn't a member of the organisation it tried to log in to" });
+    expect(zitadelModule.getLoginSettings).not.toHaveBeenCalled();
   });
 
   it("should return unknown error for non-code-9 errors", async () => {
