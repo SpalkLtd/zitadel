@@ -19,7 +19,7 @@ import {
   ServiceConfig,
   updateUser,
 } from "@/lib/zitadel";
-import { Code, create } from "@zitadel/client";
+import { Code, ConnectError, create } from "@zitadel/client";
 import { AutoLinkingOption } from "@zitadel/proto/zitadel/idp/v2/idp_pb";
 import { SetHumanEmail } from "@zitadel/proto/zitadel/user/v2/email_pb";
 import { SetHumanProfile } from "@zitadel/proto/zitadel/user/v2/user_pb";
@@ -584,6 +584,17 @@ async function handleAutoLinking(ctx: IDPHandlerContext): Promise<IDPHandlerResu
   return null;
 }
 
+// Spalk: targetRefusalMessage is the message an Actions v2 request target (Spalk's
+// user-creation hook) refused the call with, without Zitadel's error ID: Zitadel
+// returns it as "<message> (EXEC-reUaUZCzCp)" or "<message> (EXEC-bmhNhpcqpF)".
+function targetRefusalMessage(error: unknown): string | undefined {
+  if (!(error instanceof ConnectError)) {
+    return undefined;
+  }
+  const match = /^([\s\S]*) \(EXEC-(?:reUaUZCzCp|bmhNhpcqpF)\)$/.exec(error.rawMessage);
+  return match?.[1] || undefined;
+}
+
 /**
  * CASE 4: Auto-creation of user
  */
@@ -677,6 +688,11 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
       return { error: t("errors.sessionCreationFailed") };
     } catch (error: unknown) {
       logger.error("Error auto-creating user", { error });
+      // Spalk: a sign-up Spalk's user-creation hook refuses shows the hook's message.
+      const hookMessage = targetRefusalMessage(error);
+      if (hookMessage) {
+        return { error: hookMessage };
+      }
       const params = buildRedirectParams();
       return { redirect: `/idp/${provider}/failure?${params}&error=user_creation_failed` };
     }
