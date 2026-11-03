@@ -43,3 +43,30 @@ export function buildCreateUserRequest(intent: IDPIntentResult, organizationId: 
 
   return undefined;
 }
+
+/**
+ * Spalk: for a user the login creates and then signs in with createNewSessionFromIdpIntent. When the
+ * IdP did not verify the email, Zitadel's intent asks CreateUser to send a code; the sign-in's
+ * checkEmailVerification then sends a second one that replaces it, so the first emailed code is
+ * rejected. Creating the email as unverified (as ordinary registration does) leaves the login's send
+ * as the only code. A verified email is left untouched.
+ */
+export function withoutCreateEmailCode(request: CreateUserRequest): CreateUserRequest {
+  if (request.userType.case !== "human") {
+    return request;
+  }
+  const email = request.userType.value.email;
+  if (email?.verification?.case !== "sendCode") {
+    return request;
+  }
+  return {
+    ...request,
+    userType: {
+      case: "human",
+      value: {
+        ...request.userType.value,
+        email: { ...email, verification: { case: "isVerified", value: false } },
+      },
+    },
+  };
+}

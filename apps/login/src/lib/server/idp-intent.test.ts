@@ -958,6 +958,51 @@ describe("processIDPCallback", () => {
       expect(result.redirect).toBe("https://app.example.com/success");
     });
 
+    test("should create an email the IdP did not verify as unverified so the sign-in's code is the only one", async () => {
+      const idpLinks = [{ idpId: "idp123", userId: "ext123", userName: "testuser" }];
+      mockRetrieveIDPIntent.mockResolvedValue({
+        ...defaultIntent,
+        userId: undefined,
+        addHumanUser: undefined,
+        updateHumanUser: undefined,
+        userAction: {
+          case: "createUser",
+          value: {
+            username: "testuser",
+            userType: {
+              case: "human",
+              value: {
+                profile: { givenName: "Test", familyName: "User" },
+                email: { email: "test@example.com", verification: { case: "sendCode", value: {} } },
+                idpLinks,
+              },
+            },
+          },
+        },
+      });
+      mockCreateUser.mockResolvedValue({ id: "newuser123" });
+
+      await processIDPCallback(defaultParams);
+
+      expect(mockCreateUser).toHaveBeenCalledWith({
+        serviceConfig: { baseUrl: "https://api.example.com" },
+        request: {
+          organizationId: "org123",
+          username: "testuser",
+          userType: {
+            case: "human",
+            value: {
+              profile: { givenName: "Test", familyName: "User" },
+              email: { email: "test@example.com", verification: { case: "isVerified", value: false } },
+              idpLinks,
+            },
+          },
+        },
+      });
+      // createNewSessionFromIdpIntent runs checkEmailVerification, which sends the code
+      expect(mockCreateNewSessionFromIdpIntent).toHaveBeenCalledWith(expect.objectContaining({ userId: "newuser123" }));
+    });
+
     test("should resolve organization from username domain", async () => {
       mockRetrieveIDPIntent.mockResolvedValue({
         ...defaultIntent,
