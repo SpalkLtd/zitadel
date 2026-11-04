@@ -48,12 +48,25 @@ func ExecutionHandler(alg crypto.EncryptionAlgorithm, activeSigningKey execution
 }
 
 func executeTargetsForRequest(ctx context.Context, targets []target_domain.Target, fullMethod string, req connect.AnyRequest, alg crypto.EncryptionAlgorithm, activeSigningKey execution.GetActiveSigningWebKey, httpClient *http.Client) (_ connect.AnyRequest, err error) {
+	// Spalk: the targets are called in ExecuteRequestTargets, which SCIM's user creation shares.
+	if err := ExecuteRequestTargets(ctx, targets, fullMethod, req.Any().(proto.Message), req.Header(), alg, activeSigningKey, httpClient); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+// ExecuteRequestTargets calls the request targets of fullMethod with the caller from ctx,
+// as ExecutionHandler does for a call of it. A target's reply replaces req in place.
+//
+// Spalk: shared with callers that do what fullMethod does without calling it,
+// such as SCIM's user creation, so that they run the same executions.
+func ExecuteRequestTargets(ctx context.Context, targets []target_domain.Target, fullMethod string, req proto.Message, headers http.Header, alg crypto.EncryptionAlgorithm, activeSigningKey execution.GetActiveSigningWebKey, httpClient *http.Client) (err error) {
 	ctx, span := tracing.NewSpan(ctx)
 	defer func() { span.EndWithError(err) }()
 
 	// if no targets are found, return without any calls
 	if len(targets) == 0 {
-		return req, nil
+		return nil
 	}
 
 	ctxData := authz.GetCtxData(ctx)
@@ -63,24 +76,34 @@ func executeTargetsForRequest(ctx context.Context, targets []target_domain.Targe
 		ProjectID:  ctxData.ProjectID,
 		OrgID:      ctxData.OrgID,
 		UserID:     ctxData.UserID,
-		Request:    Message{req.Any().(proto.Message)},
-		Headers:    SetRequestHeaders(req.Header()),
+		Request:    Message{req},
+		Headers:    SetRequestHeaders(headers),
 	}
 
 	_, err = execution.CallTargets(ctx, targets, info, alg, activeSigningKey, httpClient)
-	if err != nil {
-		return nil, err
-	}
-	return req, nil
+	return err
 }
 
 func executeTargetsForResponse(ctx context.Context, targets []target_domain.Target, fullMethod string, req connect.AnyRequest, resp connect.AnyResponse, alg crypto.EncryptionAlgorithm, activeSigningKey execution.GetActiveSigningWebKey, httpClient *http.Client) (_ connect.AnyResponse, err error) {
+	// Spalk: the targets are called in ExecuteResponseTargets, which SCIM's user creation shares.
+	if err := ExecuteResponseTargets(ctx, targets, fullMethod, req.Any().(proto.Message), resp.Any().(proto.Message), req.Header(), alg, activeSigningKey, httpClient); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ExecuteResponseTargets calls the response targets of fullMethod with the caller from ctx,
+// as ExecutionHandler does for a call of it. A target's reply replaces resp in place.
+//
+// Spalk: shared with callers that do what fullMethod does without calling it,
+// such as SCIM's user creation, so that they run the same executions.
+func ExecuteResponseTargets(ctx context.Context, targets []target_domain.Target, fullMethod string, req, resp proto.Message, headers http.Header, alg crypto.EncryptionAlgorithm, activeSigningKey execution.GetActiveSigningWebKey, httpClient *http.Client) (err error) {
 	ctx, span := tracing.NewSpan(ctx)
 	defer func() { span.EndWithError(err) }()
 
 	// if no targets are found, return without any calls
 	if len(targets) == 0 {
-		return resp, nil
+		return nil
 	}
 
 	ctxData := authz.GetCtxData(ctx)
@@ -90,16 +113,13 @@ func executeTargetsForResponse(ctx context.Context, targets []target_domain.Targ
 		ProjectID:  ctxData.ProjectID,
 		OrgID:      ctxData.OrgID,
 		UserID:     ctxData.UserID,
-		Request:    Message{req.Any().(proto.Message)},
-		Response:   Message{resp.Any().(proto.Message)},
-		Headers:    SetRequestHeaders(req.Header()),
+		Request:    Message{req},
+		Response:   Message{resp},
+		Headers:    SetRequestHeaders(headers),
 	}
 
 	_, err = execution.CallTargets(ctx, targets, info, alg, activeSigningKey, httpClient)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
+	return err
 }
 
 var _ execution.ContextInfo = &ContextInfoRequest{}

@@ -29,10 +29,11 @@ func NewServer(
 	userCodeAlg crypto.EncryptionAlgorithm,
 	config *sconfig.Config,
 	translator *i18n.Translator,
+	executions sresources.Executions, // Spalk: for CreateUser's Actions v2 executions on user creation
 	middlewares ...zhttp_middlware.MiddlewareWithErrorFunc,
 ) http.Handler {
 	verifier.RegisterServer("SCIM-V2", schemas.HandlerPrefix, AuthMapping)
-	return buildHandler(command, query, userCodeAlg, config, translator, middlewares...)
+	return buildHandler(command, query, userCodeAlg, config, translator, executions, middlewares...)
 }
 
 func buildHandler(
@@ -41,13 +42,14 @@ func buildHandler(
 	userCodeAlg crypto.EncryptionAlgorithm,
 	cfg *sconfig.Config,
 	translator *i18n.Translator,
+	executions sresources.Executions, // Spalk
 	middlewares ...zhttp_middlware.MiddlewareWithErrorFunc,
 ) http.Handler {
 
 	router := mux.NewRouter()
 	middleware := buildMiddleware(cfg, query, translator, middlewares)
 
-	usersHandler := sresources.NewResourceHandlerAdapter(sresources.NewUsersHandler(command, query, userCodeAlg, cfg))
+	usersHandler := sresources.NewResourceHandlerAdapter(sresources.NewUsersHandler(command, query, userCodeAlg, cfg, executions))
 	mapResource(router, middleware, usersHandler)
 
 	bulkHandler := sresources.NewBulkHandler(cfg.Bulk, translator, usersHandler)
