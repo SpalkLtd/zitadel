@@ -13,13 +13,14 @@ import {
 import { Code, ConnectError, Duration, create } from "@zitadel/client";
 import { Factors } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksJson, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { SetHumanEmailSchema } from "@zitadel/proto/zitadel/user/v2/email_pb";
 import { SetHumanProfileSchema } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import crypto from "crypto";
 import { getTranslations } from "next-intl/server";
 import { cookies, headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
 import { getOrSetFingerprintId } from "../fingerprint";
-import { buildCreateUserRequest } from "../idp-create-user";
+import { buildCreateUserRequest, withoutCreateEmailCode } from "../idp-create-user";
 import { createLogger } from "../logger";
 import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
@@ -263,7 +264,8 @@ export async function registerUserAndLinkToIDP(
   // which the IdP left out. Upstream created the user from the form, its email
   // unverified and editable, then linked the IdP in a second call, which
   // Spalk's user-creation hook refuses for an unverified email, leaving a user
-  // with neither a password nor a link. The form's email is not used.
+  // with neither a password nor a link. The form's email is used only when the
+  // IdP sent none.
   const intent = await retrieveIDPIntent({
     serviceConfig,
     id: command.idpIntent.idpIntentId,
@@ -293,11 +295,24 @@ export async function registerUserAndLinkToIDP(
     }
   }
 
-  const createUserRequest = intent ? buildCreateUserRequest(intent, command.organization) : undefined;
+  // Spalk: the sign-in below sends the only email code (withoutCreateEmailCode)
+  const builtRequest = intent ? buildCreateUserRequest(intent, command.organization) : undefined;
+  const createUserRequest = builtRequest && withoutCreateEmailCode(builtRequest);
   if (!createUserRequest || createUserRequest.userType.case !== "human") {
     return { error: t("errors.couldNotCreateUser") };
   }
   const human = createUserRequest.userType.value;
+  // Spalk: an IdP that sends no email has the person enter one on the form. It is
+  // created unverified, and the sign-in below has them verify it with a code.
+  if (!human.email?.email) {
+    if (!command.email) {
+      return { error: t("errors.couldNotCreateUser") };
+    }
+    human.email = create(SetHumanEmailSchema, {
+      email: command.email,
+      verification: { case: "isVerified", value: false },
+    });
+  }
   human.profile = create(SetHumanProfileSchema, {
     ...human.profile,
     givenName: command.firstName,
@@ -328,23 +343,26 @@ export async function registerUserAndLinkToIDP(
     return { error: t("errors.couldNotCreateSession") };
   }
 
-  // const userResponse = await getUserByID({
-  //   serviceConfig.baseUrl,
-  //   userId: session?.factors?.user?.id,
-  // });
+  // Spalk: an email the IdP didn't verify (or the person entered) is verified with
+  // one code before the login completes, as auto-creation's sign-in does
+  // (createNewSessionFromIdpIntent). Upstream had this check commented out.
+  const userResponse = await getUserByID({ serviceConfig, userId: session.factors.user.id }).catch((error) => {
+    logger.error("Failed to get user after session creation", { error });
+    return null;
+  });
 
-  // if (!userResponse.user) {
-  //   return { error: "User not found in the system" };
-  // }
+  if (!userResponse?.user) {
+    return { error: t("errors.userNotFound") };
+  }
 
-  // const humanUser = userResponse.user.type.case === "human" ? userResponse.user.type.value : undefined;
+  const humanUser = userResponse.user.type.case === "human" ? userResponse.user.type.value : undefined;
 
   // check to see if user was verified
-  // const emailVerificationCheck = checkEmailVerification(session, humanUser, command.organization, command.requestId);
+  const emailVerificationCheck = await checkEmailVerification(session, humanUser, command.organization, command.requestId);
 
-  // if (emailVerificationCheck?.redirect) {
-  //   return emailVerificationCheck;
-  // }
+  if (emailVerificationCheck?.redirect) {
+    return emailVerificationCheck;
+  }
 
   // check if user has MFA methods
   let authMethods;

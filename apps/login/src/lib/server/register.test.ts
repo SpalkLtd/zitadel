@@ -4,6 +4,7 @@ import * as zitadel from "@/lib/zitadel";
 import { Code, ConnectError, create } from "@zitadel/client";
 import { CreateUserRequest, CreateUserRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import * as verifyHelper from "../verify-helper";
 import { registerUserAndLinkToIDP } from "./register";
 
 vi.mock("next/headers", () => ({
@@ -59,8 +60,10 @@ const command = {
 };
 
 // An intent from Google with no family name: login v2 sends the person to the
-// complete-registration form for it.
-function intentWithoutFamilyName() {
+// complete-registration form for it. A null email is an IdP that sent none.
+function intentWithoutFamilyName(
+  email: any = { email: "ada@example.com", verification: { case: "isVerified", value: true } },
+) {
   return {
     idpInformation: { idpId: "org-sso" },
     userAction: {
@@ -71,7 +74,7 @@ function intentWithoutFamilyName() {
           case: "human",
           value: {
             profile: { givenName: "Ada", displayName: "Ada" },
-            email: { email: "ada@example.com", verification: { case: "isVerified", value: true } },
+            email: email ?? undefined,
             idpLinks: [{ idpId: "google", userId: "g-1", userName: "ada@example.com" }],
           },
         },
@@ -91,6 +94,10 @@ describe("registerUserAndLinkToIDP", () => {
       id: "session-1",
       factors: { user: { id: "new-user", loginName: "ada", organizationId: "default-org" } },
     } as any);
+    vi.mocked(zitadel.getUserByID).mockResolvedValue({
+      user: { type: { case: "human", value: { email: { email: "ada@example.com", isVerified: true } } } },
+    } as any);
+    vi.mocked(verifyHelper.checkEmailVerification).mockResolvedValue(undefined);
   });
 
   test("creates the user with the IdP's verified email and link, and the form's names, in one call", async () => {
@@ -114,6 +121,67 @@ describe("registerUserAndLinkToIDP", () => {
     expect(cookie.createSessionForIdpAndUpdateCookie).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "new-user", idpIntent: command.idpIntent }),
     );
+  });
+
+  // Spalk: one email code, sent by the login and verified before the login completes
+  test("creates an email the IdP didn't verify as unverified and has it verified with the login's code", async () => {
+    vi.mocked(zitadel.retrieveIDPIntent).mockResolvedValue(
+      intentWithoutFamilyName({ email: "ada@example.com", verification: { case: "sendCode", value: {} } }) as any,
+    );
+    const unverified = { email: { email: "ada@example.com", isVerified: false } };
+    vi.mocked(zitadel.getUserByID).mockResolvedValue({ user: { type: { case: "human", value: unverified } } } as any);
+    vi.mocked(verifyHelper.checkEmailVerification).mockResolvedValue({ redirect: "/verify?loginName=ada" });
+
+    const result = await registerUserAndLinkToIDP({ ...command, requestId: "req-1" });
+
+    expect(result).toEqual({ redirect: "/verify?loginName=ada" });
+    const human = (vi.mocked(zitadel.createUser).mock.calls[0][0].request as CreateUserRequest).userType.value as any;
+    expect(human.email.email).toBe("ada@example.com");
+    expect(human.email.verification).toEqual({ case: "isVerified", value: false });
+    expect(zitadel.getUserByID).toHaveBeenCalledWith({ serviceConfig: {}, userId: "new-user" });
+    expect(verifyHelper.checkEmailVerification).toHaveBeenCalledTimes(1);
+    expect(verifyHelper.checkEmailVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "session-1" }),
+      unverified,
+      "default-org",
+      "req-1",
+    );
+    expect(verifyHelper.checkMFAFactors).not.toHaveBeenCalled();
+  });
+
+  // Spalk: an IdP that sends no email
+  test.each([
+    ["no email", null],
+    ["an empty email", { email: "", verification: { case: "sendCode", value: {} } }],
+  ])("creates the user with the form's email, unverified, when the IdP sent %s", async (_, email) => {
+    vi.mocked(zitadel.retrieveIDPIntent).mockResolvedValue(intentWithoutFamilyName(email) as any);
+
+    const result = await registerUserAndLinkToIDP(command);
+
+    expect(result).toEqual({ redirect: "/done" });
+    const human = (vi.mocked(zitadel.createUser).mock.calls[0][0].request as CreateUserRequest).userType.value as any;
+    expect(human.email.email).toBe("someone-else@example.com");
+    expect(human.email.verification).toEqual({ case: "isVerified", value: false });
+    expect(human.idpLinks).toHaveLength(1);
+    expect(verifyHelper.checkEmailVerification).toHaveBeenCalledTimes(1);
+  });
+
+  test("creates nobody when neither the IdP nor the form has an email", async () => {
+    vi.mocked(zitadel.retrieveIDPIntent).mockResolvedValue(intentWithoutFamilyName(null) as any);
+
+    const result = await registerUserAndLinkToIDP({ ...command, email: "" });
+
+    expect(result).toEqual({ error: "errors.couldNotCreateUser" });
+    expect(zitadel.createUser).not.toHaveBeenCalled();
+  });
+
+  test("refuses the login when the created user can't be read", async () => {
+    vi.mocked(zitadel.getUserByID).mockRejectedValue(new Error("down"));
+
+    const result = await registerUserAndLinkToIDP(command);
+
+    expect(result).toEqual({ error: "errors.userNotFound" });
+    expect(verifyHelper.checkEmailVerification).not.toHaveBeenCalled();
   });
 
   test("shows the user-creation hook's message for a taken email", async () => {
