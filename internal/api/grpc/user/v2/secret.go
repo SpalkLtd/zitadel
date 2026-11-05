@@ -24,6 +24,24 @@ func (s *Server) AddSecret(ctx context.Context, req *connect.Request[user.AddSec
 	}), nil
 }
 
+// SetSecret sets a service account's secret from an existing hash (Spalk). Unlike AddSecret, a user can't set their
+// own.
+func (s *Server) SetSecret(ctx context.Context, req *connect.Request[user.SetSecretRequest]) (*connect.Response[user.SetSecretResponse], error) {
+	details, err := s.command.SetMachineSecretHash(
+		ctx,
+		req.Msg.GetUserId(),
+		"",
+		req.Msg.GetHashedSecret(),
+		s.command.NewPermissionCheckUserWrite(ctx, false),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&user.SetSecretResponse{
+		ChangeDate: timestamppb.New(details.EventDate),
+	}), nil
+}
+
 func (s *Server) RemoveSecret(ctx context.Context, req *connect.Request[user.RemoveSecretRequest]) (*connect.Response[user.RemoveSecretResponse], error) {
 	details, err := s.command.RemoveMachineSecret(
 		ctx,
