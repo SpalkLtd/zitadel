@@ -7,6 +7,7 @@ import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { isUndeliverableEmail } from "../client-utils"; // Spalk
 import { idpTypeToIdentityProviderType, idpTypeToSlug } from "../idp";
 
 import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
@@ -383,6 +384,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
       logger.debug("humanUser.email?.isVerified", {
         isVerified: humanUser?.email?.isVerified,
       });
+
+      // Spalk: an email at a .invalid domain (the placeholder Spalk gives a member their organisation's directory
+      // removed) can never receive the invite code, so the /verify page would be a dead end: say so instead.
+      if (isUndeliverableEmail(humanUser?.email?.email)) {
+        return { error: t("errors.noLoginMethod") };
+      }
 
       // If the user's email is not verified, they likely already have a code from the
       // initial verification email. Auto-sending a new one here invalidates their existing code

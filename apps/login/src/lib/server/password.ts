@@ -24,6 +24,7 @@ import { SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_se
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
+import { isUndeliverableEmail } from "../client-utils"; // Spalk
 import { getSessionCookieById, getSessionCookieByLoginName } from "../cookies";
 import { getServiceConfig } from "../service-url";
 import {
@@ -114,6 +115,12 @@ export async function resetPassword(command: ResetPasswordCommand) {
       }
       return { error: t("errors.couldNotSendResetLink") };
     }
+  }
+
+  // Spalk: an email at a .invalid domain (the placeholder Spalk gives a member their organisation's directory
+  // removed) can never receive the reset code.
+  if (isUndeliverableEmail(humanUser?.email?.email)) {
+    return { error: t("errors.emailUndeliverable") };
   }
 
   const userId = user.userId;

@@ -265,6 +265,42 @@ describe("sendLoginname", () => {
       expect((result as any).redirect).toContain("requestId=req123");
     });
 
+    // Spalk
+    test("tells a user with no authentication methods and an email at a .invalid domain so, sending no code", async () => {
+      const { trySendVerification } = await import("./verify");
+      mockSearchUsers.mockResolvedValue({
+        result: [
+          {
+            ...mockUser,
+            type: { case: "human", value: { email: { email: "user123@removed.invalid", isVerified: true } } },
+          },
+        ],
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+
+      const result = await sendLoginname({ loginName: "user@example.com", organization: "org123" });
+
+      expect(result).toEqual({ error: "errors.noLoginMethod" });
+      expect(trySendVerification).not.toHaveBeenCalled();
+    });
+
+    // Spalk
+    test("sends a user with no authentication methods and a deliverable verified email an invite code", async () => {
+      const { trySendVerification } = await import("./verify");
+      vi.mocked(trySendVerification).mockResolvedValueOnce(true);
+      mockSearchUsers.mockResolvedValue({
+        result: [
+          { ...mockUser, type: { case: "human", value: { email: { email: "user@example.com", isVerified: true } } } },
+        ],
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+
+      const result = await sendLoginname({ loginName: "user@example.com", organization: "org123" });
+
+      expect(trySendVerification).toHaveBeenCalledWith(expect.objectContaining({ userId: "user123", isInvite: true }));
+      expect((result as any).redirect).toContain("codeSent=true");
+    });
+
     describe("Single authentication method", () => {
       test("should redirect to password when user has only password method and it's allowed", async () => {
         mockListAuthenticationMethodTypes.mockResolvedValue({

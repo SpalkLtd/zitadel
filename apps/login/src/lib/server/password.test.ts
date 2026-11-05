@@ -581,6 +581,37 @@ describe("resetPassword", () => {
     expect(result).toEqual({ error: "errors.couldNotSendResetLink" });
     expect(mockPasswordReset).not.toHaveBeenCalled();
   });
+
+  // Spalk
+  describe("an email at a .invalid domain", () => {
+    const userWithEmail = (email: string) => ({
+      userId: "user123",
+      preferredLoginName: "user",
+      details: { resourceOwner: "org123" },
+      type: { case: "human", value: { email: { email, isVerified: true } } },
+    });
+
+    test("is sent no reset code and is told the address can't receive mail", async () => {
+      mockGetLoginSettings.mockResolvedValue({});
+      mockSearchUsers.mockResolvedValue({ result: [userWithEmail("user123@removed.invalid")] });
+
+      const result = await resetPassword({ loginName: "user" });
+
+      expect(result).toEqual({ error: "errors.emailUndeliverable" });
+      expect(mockPasswordReset).not.toHaveBeenCalled();
+    });
+
+    test("a deliverable email is still sent the reset code", async () => {
+      mockGetLoginSettings.mockResolvedValue({});
+      mockSearchUsers.mockResolvedValue({ result: [userWithEmail("user@example.com")] });
+      mockPasswordReset.mockResolvedValue({});
+
+      const result = await resetPassword({ loginName: "user" });
+
+      expect(result).toEqual({});
+      expect(mockPasswordReset).toHaveBeenCalledWith(expect.objectContaining({ userId: "user123" }));
+    });
+  });
 });
 
 describe("changePassword", () => {
