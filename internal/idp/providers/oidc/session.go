@@ -69,6 +69,10 @@ func (s *Session) FetchUser(ctx context.Context) (user idp.User, err error) {
 			return nil, err
 		}
 	}
+	// Spalk: see [WithEmailVerified].
+	if s.Provider.emailVerified {
+		info.EmailVerified = true
+	}
 	u := s.Provider.userInfoMapper(info)
 	return u, nil
 }

@@ -87,6 +87,8 @@ export class ProviderOIDCComponent {
       scopesList: new UntypedFormControl(['openid', 'profile', 'email'], []),
       isIdTokenMapping: new UntypedFormControl(),
       usePkce: new UntypedFormControl(false),
+      // Spalk: the generic OIDC IdP's "email verified" option, like Azure AD's.
+      emailVerified: new UntypedFormControl(false),
     });
 
     this.route.data.pipe(take(1)).subscribe((data) => {
@@ -168,6 +170,7 @@ export class ProviderOIDCComponent {
     req.setProviderOptions(this.options);
     req.setIsIdTokenMapping(this.isIdTokenMapping?.value);
     req.setUsePkce(this.usePkce?.value);
+    req.setEmailVerified(this.emailVerified?.value); // Spalk
 
     this.loading = true;
     this.service
@@ -197,6 +200,7 @@ export class ProviderOIDCComponent {
       req.setProviderOptions(this.options);
       req.setIsIdTokenMapping(this.isIdTokenMapping?.value);
       req.setUsePkce(this.usePkce?.value);
+      req.setEmailVerified(this.emailVerified?.value); // Spalk
 
       this.loading = true;
       this.service
@@ -268,5 +272,10 @@ export class ProviderOIDCComponent {
 
   public get usePkce(): AbstractControl | null {
     return this.form.get('usePkce');
+  }
+
+  // Spalk: see emailVerified in the form.
+  public get emailVerified(): AbstractControl | null {
+    return this.form.get('emailVerified');
   }
 }

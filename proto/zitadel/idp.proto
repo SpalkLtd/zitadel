@@ -389,6 +389,13 @@ message GenericOIDCConfig {
             example: "true";
         }
     ];
+    // Spalk: the generic OIDC IdP's "email verified" option, like Azure AD's email_verified.
+    bool email_verified = 6 [
+        (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+            example: "true";
+            description: "The identity provider is trusted to have verified its users' email addresses. Enable this if the user email should always be added verified in Zitadel, whatever the email_verified claim says (no verification emails will be sent)";
+        }
+    ];
 }
 
 message GitHubConfig {

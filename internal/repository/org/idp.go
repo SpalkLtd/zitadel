@@ -141,7 +141,7 @@ func NewOIDCIDPAddedEvent(
 	clientID string,
 	clientSecret *crypto.CryptoValue,
 	scopes []string,
-	isIDTokenMapping, usePKCE bool,
+	isIDTokenMapping, usePKCE, isEmailVerified bool, // Spalk: isEmailVerified
 	options idp.Options,
 ) *OIDCIDPAddedEvent {
 
@@ -160,6 +160,7 @@ func NewOIDCIDPAddedEvent(
 			scopes,
 			isIDTokenMapping,
 			usePKCE,
+			isEmailVerified,
 			options,
 		),
 	}

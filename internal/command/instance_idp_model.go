@@ -176,7 +176,7 @@ func (wm *InstanceOIDCIDPWriteModel) NewChangedEvent(
 	clientSecretString string,
 	secretCrypto crypto.EncryptionAlgorithm,
 	scopes []string,
-	idTokenMapping, usePKCE bool,
+	idTokenMapping, usePKCE, isEmailVerified bool, // Spalk: isEmailVerified
 	options idp.Options,
 ) (*instance.OIDCIDPChangedEvent, error) {
 
@@ -189,6 +189,7 @@ func (wm *InstanceOIDCIDPWriteModel) NewChangedEvent(
 		scopes,
 		idTokenMapping,
 		usePKCE,
+		isEmailVerified,
 		options,
 	)
 	if err != nil || len(changes) == 0 {

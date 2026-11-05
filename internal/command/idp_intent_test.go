@@ -675,6 +675,7 @@ func TestCommands_AuthFromProvider(t *testing.T) {
 								[]string{"openid", "profile", "User.Read"},
 								false,
 								true,
+								false,
 								rep_idp.Options{},
 							)),
 						eventFromEventPusherWithInstanceID(
@@ -712,6 +713,7 @@ func TestCommands_AuthFromProvider(t *testing.T) {
 								[]string{"openid", "profile", "User.Read"},
 								false,
 								true,
+								false,
 								rep_idp.Options{},
 							)),
 						eventFromEventPusherWithInstanceID(

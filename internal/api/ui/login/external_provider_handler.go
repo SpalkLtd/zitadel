@@ -1214,6 +1214,10 @@ func (l *Login) oidcProvider(ctx context.Context, identityProvider *query.IDPTem
 		// we do not pass any cookie handler, since we store the verifier internally, rather than in a cookie
 		opts = append(opts, openid.WithRelyingPartyOption(rp.WithPKCE(nil)))
 	}
+	// Spalk: see openid.WithEmailVerified.
+	if identityProvider.OIDCIDPTemplate.IsEmailVerified {
+		opts = append(opts, openid.WithEmailVerified())
+	}
 
 	return openid.New(identityProvider.Name,
 		identityProvider.OIDCIDPTemplate.Issuer,

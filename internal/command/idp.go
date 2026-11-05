@@ -33,6 +33,8 @@ type GenericOIDCProvider struct {
 	IsIDTokenMapping bool
 	UsePKCE          bool
 	IDPOptions       idp.Options
+	// Spalk: trust the IdP's email as verified, like AzureADProvider.EmailVerified.
+	EmailVerified bool
 }
 
 type JWTProvider struct {
