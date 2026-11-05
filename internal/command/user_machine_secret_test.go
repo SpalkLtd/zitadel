@@ -7,7 +7,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zitadel/passwap"
+	"github.com/zitadel/passwap/bcrypt"
+	xbcrypt "golang.org/x/crypto/bcrypt"
 
+	"github.com/zitadel/zitadel/internal/crypto"
 	"github.com/zitadel/zitadel/internal/domain"
 	"github.com/zitadel/zitadel/internal/eventstore"
 	"github.com/zitadel/zitadel/internal/repository/user"
@@ -299,6 +303,132 @@ func TestCommandSide_RemoveMachineSecret(t *testing.T) {
 			if tt.res.err == nil {
 				assertObjectDetails(t, tt.res.want, got)
 			}
+		})
+	}
+}
+
+func TestCommandSide_SetMachineSecretHash(t *testing.T) {
+	hash, err := xbcrypt.GenerateFromPassword([]byte("secret"), 4)
+	require.NoError(t, err)
+	tooCostly, err := xbcrypt.GenerateFromPassword([]byte("secret"), 11)
+	require.NoError(t, err)
+	machineAdded := expectFilter(
+		eventFromEventPusher(
+			user.NewMachineAddedEvent(context.Background(),
+				&user.NewAggregate("user1", "org1").Aggregate,
+				"user1",
+				"username",
+				"user",
+				false,
+				domain.OIDCTokenTypeJWT,
+			),
+		),
+	)
+	tests := []struct {
+		name          string
+		expects       []expect
+		userID        string
+		resourceOwner string
+		hashedSecret  string
+		want          *domain.ObjectDetails
+		err           func(error) bool
+	}{
+		{
+			name:          "no hash, invalid argument error",
+			userID:        "user1",
+			resourceOwner: "org1",
+			err:           zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:          "hash the hasher can't verify, invalid argument error",
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  "$plain$x$secret",
+			err:           zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:          "hash over the cost limit, invalid argument error",
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  string(tooCostly),
+			err:           zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:          "no user ID, invalid argument error",
+			resourceOwner: "org1",
+			hashedSecret:  string(hash),
+			err:           zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:         "no resource owner or permission check, invalid argument error",
+			userID:       "user1",
+			hashedSecret: string(hash),
+			err:          zerrors.IsErrorInvalidArgument,
+		},
+		{
+			name:          "user not existing, precondition error",
+			expects:       []expect{expectFilter()},
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  string(hash),
+			err:           zerrors.IsPreconditionFailed,
+		},
+		{
+			name:          "filter fails, error",
+			expects:       []expect{expectFilterError(zerrors.ThrowInternal(nil, "", "filter"))},
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  string(hash),
+			err:           zerrors.IsInternal,
+		},
+		{
+			name: "push fails, error",
+			expects: []expect{
+				machineAdded,
+				expectPushFailed(zerrors.ThrowInternal(nil, "", "push"),
+					user.NewMachineSecretSetEvent(context.Background(),
+						&user.NewAggregate("user1", "org1").Aggregate,
+						string(hash),
+					),
+				),
+			},
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  string(hash),
+			err:           zerrors.IsInternal,
+		},
+		{
+			name: "set machine secret hash, ok",
+			expects: []expect{
+				machineAdded,
+				expectPush(
+					user.NewMachineSecretSetEvent(context.Background(),
+						&user.NewAggregate("user1", "org1").Aggregate,
+						string(hash),
+					),
+				),
+			},
+			userID:        "user1",
+			resourceOwner: "org1",
+			hashedSecret:  string(hash),
+			want:          &domain.ObjectDetails{ResourceOwner: "org1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Commands{
+				eventstore: expectEventstore(tt.expects...)(t),
+				secretHasher: &crypto.Hasher{
+					Swapper: passwap.NewSwapper(bcrypt.New(4, &bcrypt.ValidationOpts{MinCost: 4, MaxCost: 10})),
+				},
+			}
+			got, err := r.SetMachineSecretHash(context.Background(), tt.userID, tt.resourceOwner, tt.hashedSecret, nil)
+			if tt.err != nil {
+				assert.True(t, tt.err(err), "got wrong err: %v", err)
+				return
+			}
+			require.NoError(t, err)
+			assertObjectDetails(t, tt.want, got)
 		})
 	}
 }

@@ -63,6 +63,55 @@ func (c *Commands) prepareGenerateMachineSecret(a *user.Aggregate, set *Generate
 	}
 }
 
+// SetMachineSecretHash sets a machine user's client secret from an encoded hash, such as one imported from another
+// identity provider, replacing any current secret (Spalk).
+func (c *Commands) SetMachineSecretHash(ctx context.Context, userID, resourceOwner, hashedSecret string, check PermissionCheck) (*domain.ObjectDetails, error) {
+	if hashedSecret == "" {
+		return nil, zerrors.ThrowInvalidArgument(nil, "COMMAND-Spk3sh", "Errors.User.Machine.Secret.Invalid")
+	}
+	if err := c.secretHasher.ValidateEncodedHash(hashedSecret); err != nil {
+		return nil, err
+	}
+	agg := user.NewAggregate(userID, resourceOwner)
+	//nolint:staticcheck
+	cmds, err := preparation.PrepareCommands(ctx, c.eventstore.Filter, prepareSetMachineSecretHash(agg, hashedSecret, check))
+	if err != nil {
+		return nil, err
+	}
+	events, err := c.eventstore.Push(ctx, cmds...)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.ObjectDetails{
+		Sequence:      events[len(events)-1].Sequence(),
+		EventDate:     events[len(events)-1].CreatedAt(),
+		ResourceOwner: events[len(events)-1].Aggregate().ResourceOwner,
+	}, nil
+}
+
+func prepareSetMachineSecretHash(a *user.Aggregate, hashedSecret string, check PermissionCheck) preparation.Validation {
+	return func() (_ preparation.CreateCommands, err error) {
+		if a.ResourceOwner == "" && check == nil {
+			return nil, zerrors.ThrowInvalidArgument(nil, "COMMAND-Spk4ro", "Errors.ResourceOwnerMissing")
+		}
+		if a.ID == "" {
+			return nil, zerrors.ThrowInvalidArgument(nil, "COMMAND-Spk5id", "Errors.User.UserIDMissing")
+		}
+		return func(ctx context.Context, filter preparation.FilterToQueryReducer) ([]eventstore.Command, error) {
+			writeModel, err := getMachineWriteModel(ctx, a.ID, a.ResourceOwner, filter, check)
+			if err != nil {
+				return nil, err
+			}
+			if !isUserStateExists(writeModel.UserState) {
+				return nil, zerrors.ThrowPreconditionFailed(nil, "COMMAND-Spk6ne", "Errors.User.NotExisting")
+			}
+			return []eventstore.Command{
+				user.NewMachineSecretSetEvent(ctx, &a.Aggregate, hashedSecret),
+			}, nil
+		}, nil
+	}
+}
+
 func (c *Commands) RemoveMachineSecret(ctx context.Context, userID string, resourceOwner string, permissionCheck PermissionCheck) (*domain.ObjectDetails, error) {
 	agg := user.NewAggregate(userID, resourceOwner)
 	//nolint:staticcheck
