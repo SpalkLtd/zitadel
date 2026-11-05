@@ -1570,6 +1570,47 @@ service UserService {
     };
   }
 
+  // Set a Users Secret
+  //
+  // Set a service account's client secret from an existing hash, such as one imported from another identity provider, so that its client keeps authenticating with the secret it already has.
+  // The hash must be one the instance's secret hasher verifies (for example bcrypt, `$2a$`, `$2b$` or `$2y$`), within its cost limits.
+  // It replaces any current secret. The service account's username is its client ID.
+  //
+  // Required permission:
+  //   - user.write
+  rpc SetSecret(SetSecretRequest) returns (SetSecretResponse) {
+    option (google.api.http) = {
+      put: "/v2/users/{user_id}/secret"
+      body: "*"
+    };
+
+    option (zitadel.protoc_gen_zitadel.v2.options) = {
+      auth_option: {
+        permission: "authenticated"
+      }
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: {
+        key: "200"
+        value: {
+          description: "The secret was successfully set.";
+        }
+      };
+      responses: {
+        key: "404"
+        value: {
+          description: "The user ID does not exist.";
+          schema: {
+            json_schema: {
+              ref: "#/definitions/rpcStatus";
+            };
+          };
+        }
+      };
+    };
+  }
+
   // Add a Key
   //
   // Add a keys that can be used to securely authenticate at the Zitadel APIs using JWT profile authentication using short-lived tokens.
@@ -3652,6 +3693,38 @@ message RemoveSecretRequest {
 message RemoveSecretResponse {
   // The timestamp of the secret deletion.
   google.protobuf.Timestamp deletion_date = 1 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      example: "\"2024-12-18T07:50:47.492Z\"";
+    }
+  ];
+}
+
+message SetSecretRequest {
+  // The ID of the service account.
+  string user_id = 1 [
+    (validate.rules).string = {min_len: 1, max_len: 200},
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      min_length: 1;
+      max_length: 200;
+      example: "\"163840776835432345\"";
+    }
+  ];
+  // The encoded hash of the client secret, in a format the instance's secret hasher verifies.
+  string hashed_secret = 2 [
+    (validate.rules).string = {min_len: 1, max_len: 200},
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      min_length: 1;
+      max_length: 200;
+      example: "\"$2a$10$Hj5NEJnQjnAU0JDPF7Gc6ex/X9DtswX6S7Tl12rpKH7ObRx4F6Hsa\"";
+    }
+  ];
+}
+
+message SetSecretResponse {
+  // The timestamp of the secret change.
+  google.protobuf.Timestamp change_date = 1 [
     (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
       example: "\"2024-12-18T07:50:47.492Z\"";
     }
