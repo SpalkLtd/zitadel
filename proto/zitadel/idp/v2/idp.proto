@@ -212,6 +212,11 @@ message GenericOIDCConfig {
         example:
           "true";
       } ];
+  // Spalk: the identity provider is trusted to have verified its users' email
+  // addresses. If true, the user email is always added verified in Zitadel,
+  // whatever the email_verified claim says (no verification emails will be
+  // sent). Numbered as in zitadel.idp.v1.GenericOIDCConfig.
+  bool email_verified = 6;
 }
 
 message GitHubConfig {

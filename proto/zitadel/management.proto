@@ -13258,6 +13258,12 @@ message AddGenericOIDCProviderRequest {
     bool is_id_token_mapping = 7;
     // Enable the use of Proof Key for Code Exchange (PKCE) for the OIDC flow.
     bool use_pkce = 8;
+    // Spalk: the generic OIDC IdP's "email verified" option, like Azure AD's email_verified.
+    bool email_verified = 9 [
+        (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+            description: "The identity provider is trusted to have verified its users' email addresses. Enable this if the user email should always be added verified in Zitadel, whatever the email_verified claim says (no verification emails will be sent)";
+        }
+    ];
 }
 
 message AddGenericOIDCProviderResponse {
@@ -13311,6 +13317,12 @@ message UpdateGenericOIDCProviderRequest {
     bool is_id_token_mapping = 8;
     // Enable the use of Proof Key for Code Exchange (PKCE) for the OIDC flow.
     bool use_pkce = 9;
+    // Spalk: the generic OIDC IdP's "email verified" option, like Azure AD's email_verified.
+    bool email_verified = 10 [
+        (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+            description: "The identity provider is trusted to have verified its users' email addresses. Enable this if the user email should always be added verified in Zitadel, whatever the email_verified claim says (no verification emails will be sent)";
+        }
+    ];
 }
 
 message UpdateGenericOIDCProviderResponse {

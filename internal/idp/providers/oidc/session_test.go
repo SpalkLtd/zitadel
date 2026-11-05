@@ -201,6 +201,129 @@ func TestSession_FetchUser(t *testing.T) {
 			},
 		},
 		{
+			name: "unverified email claim",
+			fields: fields{
+				name:         "oidc",
+				issuer:       "https://issuer.com",
+				clientID:     "clientID",
+				clientSecret: "clientSecret",
+				redirectURI:  "redirectURI",
+				scopes:       []string{"openid"},
+				userMapper:   DefaultMapper,
+				httpMock: func(issuer string) {
+					gock.New(issuer).
+						Get(oidc.DiscoveryEndpoint).
+						Reply(200).
+						JSON(&oidc.DiscoveryConfiguration{
+							Issuer:                issuer,
+							AuthorizationEndpoint: issuer + "/authorize",
+							TokenEndpoint:         issuer + "/token",
+							UserinfoEndpoint:      issuer + "/userinfo",
+						})
+					gock.New(issuer).
+						Get("/userinfo").
+						Reply(200).
+						JSON(unverifiedUserinfo())
+				},
+				authURL: "https://issuer.com/authorize?client_id=clientID&redirect_uri=redirectURI&response_type=code&scope=openid&state=testState",
+				tokens: &oidc.Tokens[*oidc.IDTokenClaims]{
+					Token: &oauth2.Token{
+						AccessToken: "accessToken",
+						TokenType:   oidc.BearerToken,
+					},
+					IDTokenClaims: oidc.NewIDTokenClaims(
+						"https://issuer.com",
+						"sub",
+						[]string{"clientID"},
+						time.Now().Add(1*time.Hour),
+						time.Now().Add(-1*time.Second),
+						"nonce",
+						"",
+						nil,
+						"clientID",
+						0,
+					),
+				},
+			},
+			want: want{
+				id:                "sub",
+				firstName:         "firstname",
+				lastName:          "lastname",
+				displayName:       "firstname lastname",
+				nickName:          "nickname",
+				preferredUsername: "username",
+				email:             "email",
+				isEmailVerified:   false,
+				phone:             "phone",
+				isPhoneVerified:   true,
+				preferredLanguage: language.English,
+				avatarURL:         "picture",
+				profile:           "profile",
+			},
+		},
+		{
+			name: "unverified email claim, email verified option (Spalk)",
+			fields: fields{
+				name:         "oidc",
+				issuer:       "https://issuer.com",
+				clientID:     "clientID",
+				clientSecret: "clientSecret",
+				redirectURI:  "redirectURI",
+				scopes:       []string{"openid"},
+				userMapper:   DefaultMapper,
+				httpMock: func(issuer string) {
+					gock.New(issuer).
+						Get(oidc.DiscoveryEndpoint).
+						Reply(200).
+						JSON(&oidc.DiscoveryConfiguration{
+							Issuer:                issuer,
+							AuthorizationEndpoint: issuer + "/authorize",
+							TokenEndpoint:         issuer + "/token",
+							UserinfoEndpoint:      issuer + "/userinfo",
+						})
+					gock.New(issuer).
+						Get("/userinfo").
+						Reply(200).
+						JSON(unverifiedUserinfo())
+				},
+				authURL: "https://issuer.com/authorize?client_id=clientID&redirect_uri=redirectURI&response_type=code&scope=openid&state=testState",
+				tokens: &oidc.Tokens[*oidc.IDTokenClaims]{
+					Token: &oauth2.Token{
+						AccessToken: "accessToken",
+						TokenType:   oidc.BearerToken,
+					},
+					IDTokenClaims: oidc.NewIDTokenClaims(
+						"https://issuer.com",
+						"sub",
+						[]string{"clientID"},
+						time.Now().Add(1*time.Hour),
+						time.Now().Add(-1*time.Second),
+						"nonce",
+						"",
+						nil,
+						"clientID",
+						0,
+					),
+				},
+			},
+			opts: []ProviderOpts{WithEmailVerified()},
+			want: want{
+				id:                "sub",
+				firstName:         "firstname",
+				lastName:          "lastname",
+				displayName:       "firstname lastname",
+				nickName:          "nickname",
+				preferredUsername: "username",
+				email:             "email",
+				isEmailVerified:   true,
+				phone:             "phone",
+				isPhoneVerified:   true,
+				preferredLanguage: language.English,
+				avatarURL:         "picture",
+				profile:           "profile",
+			},
+		},
+		{
 			name: "use ID token",
 			fields: fields{
 				name:         "oidc",
@@ -355,6 +478,14 @@ func TestSession_FetchUser(t *testing.T) {
 				a.Equal(tt.want.preferredLanguage, user.GetPreferredLanguage())
 				a.Equal(tt.want.avatarURL, user.GetAvatarURL())
 				a.Equal(tt.want.profile, user.GetProfile())
+
+				// Spalk: the intent stores the user as JSON and rebuilds it with InitUser,
+				// without the provider, so the email verified option must survive that.
+				data, err := json.Marshal(user)
+				require.NoError(t, err)
+				stored := InitUser()
+				require.NoError(t, json.Unmarshal(data, stored))
+				a.Equal(tt.want.isEmailVerified, stored.IsEmailVerified())
 			}
 		})
 	}
@@ -382,6 +513,13 @@ func userinfo() *oidc.UserInfo {
 			PhoneNumberVerified: true,
 		},
 	}
+}
+
+// Spalk: see WithEmailVerified.
+func unverifiedUserinfo() *oidc.UserInfo {
+	info := userinfo()
+	info.EmailVerified = false
+	return info
 }
 
 func tokenResponse(t *testing.T, issuer string) *oidc.AccessTokenResponse {

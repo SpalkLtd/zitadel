@@ -115,6 +115,13 @@
                     <mat-checkbox formControlName="usePkce">{{ 'IDP.USEPKCE' | translate }}</mat-checkbox>
                   </div>
                 </cnsl-info-section>
+                <!-- Spalk: the generic OIDC IdP's "email verified" option, like Azure AD's. -->
+                <cnsl-info-section>
+                  <div>
+                    <p class="checkbox-desc">{{ 'IDP.EMAILVERIFIED_DESC' | translate }}</p>
+                    <mat-checkbox formControlName="emailVerified">{{ 'IDP.EMAILVERIFIED' | translate }}</mat-checkbox>
+                  </div>
+                </cnsl-info-section>
               </cnsl-info-section>
             </div>
             <cnsl-provider-options

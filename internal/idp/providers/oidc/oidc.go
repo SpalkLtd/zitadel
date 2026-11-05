@@ -26,6 +26,8 @@ type Provider struct {
 	userInfoMapper    func(info *oidc.UserInfo) idp.User
 	authOptions       []func(bool) rp.AuthURLOpt
 	generateVerifier  func() string
+	// Spalk: see WithEmailVerified.
+	emailVerified bool
 }
 
 type ProviderOpts func(provider *Provider)
@@ -63,6 +65,18 @@ func WithAutoUpdate() ProviderOpts {
 func WithIDTokenMapping() ProviderOpts {
 	return func(p *Provider) {
 		p.useIDToken = true
+	}
+}
+
+// WithEmailVerified sets every email received from the provider as verified,
+// whatever its `email_verified` claim says (like azuread.WithEmailVerified),
+// for an IdP that is trusted to own its users' emails but doesn't send the claim.
+//
+// Spalk: the flag is set on the mapped [oidc.UserInfo], not read from the provider later,
+// so it's kept in the intent's stored IdP user, which is rebuilt without the provider.
+func WithEmailVerified() ProviderOpts {
+	return func(p *Provider) {
+		p.emailVerified = true
 	}
 }
 

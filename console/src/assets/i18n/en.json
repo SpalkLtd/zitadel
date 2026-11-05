@@ -2416,7 +2416,8 @@
     "ISIDTOKENMAPPING": "Map from the ID token",
     "ISIDTOKENMAPPING_DESC": "If selected, provider information gets mapped from the ID token, not from the userinfo endpoint.",
     "USEPKCE": "Use PKCE",
-    "USEPKCE_DESC": "Determines whether the code_challenge and code_challenge_method params are included in the auth request"
+    "USEPKCE_DESC": "Determines whether the code_challenge and code_challenge_method params are included in the auth request",
+    "EMAILVERIFIED_DESC": "Trust the provider's email addresses: users' emails are added as verified, whatever its email_verified claim says (no verification emails are sent). Only enable this for a provider that owns its users' email domain."
   },
   "MFA": {
     "LIST": {

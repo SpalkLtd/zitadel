@@ -239,6 +239,7 @@ func addGenericOIDCProviderToCommand(req *mgmt_pb.AddGenericOIDCProviderRequest)
 		IsIDTokenMapping: req.IsIdTokenMapping,
 		UsePKCE:          req.UsePkce,
 		IDPOptions:       idp_grpc.OptionsToCommand(req.ProviderOptions),
+		EmailVerified:    req.EmailVerified, // Spalk
 	}
 }
 
@@ -252,6 +253,7 @@ func updateGenericOIDCProviderToCommand(req *mgmt_pb.UpdateGenericOIDCProviderRe
 		IsIDTokenMapping: req.IsIdTokenMapping,
 		UsePKCE:          req.UsePkce,
 		IDPOptions:       idp_grpc.OptionsToCommand(req.ProviderOptions),
+		EmailVerified:    req.EmailVerified, // Spalk
 	}
 }
 
