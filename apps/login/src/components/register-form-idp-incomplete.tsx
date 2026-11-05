@@ -135,12 +135,13 @@ export function RegisterFormIDPIncomplete({
             </div>
           </div>
           <div className="">
-            {/* Spalk: the user gets the identity provider's email (registerUserAndLinkToIDP), so it is shown, not edited */}
+            {/* Spalk: the user gets the identity provider's email (registerUserAndLinkToIDP), so it is shown, not edited;
+                an IdP that sent none has the person enter one, which they verify with a code */}
             <TextInput
               type="email"
               autoComplete="email"
               required
-              readOnly
+              readOnly={!!defaultValues?.email}
               {...register("email", { required: t("required.email") })}
               label={t("labels.email")}
               error={errors.email?.message as string}

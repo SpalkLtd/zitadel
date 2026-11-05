@@ -816,6 +816,22 @@ describe("processIDPCallback", () => {
 
       expect(result.redirect).toContain("/idp/google/linking-failed");
     });
+
+    // Spalk: a link Spalk's hook refuses shows the hook's message, not Zitadel's error text in the URL
+    test("should show the message of a hook that refuses the link", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockListUsers.mockResolvedValue({
+        result: [{ userId: "found123", details: { resourceOwner: "org123" } }],
+      });
+      mockAddIDPLink.mockRejectedValue(
+        new ConnectError("This account belongs to another organisation. (EXEC-bmhNhpcqpF)", 9),
+      );
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(result).toEqual({ error: "This account belongs to another organisation." });
+      expect(mockCreateNewSessionFromIdpIntent).not.toHaveBeenCalled();
+    });
   });
 
   describe("CASE 3: Auto-linking by username", () => {
@@ -1082,9 +1098,7 @@ describe("processIDPCallback", () => {
 
     test("should show the message of a user-creation hook that refuses the sign-up", async () => {
       const { ConnectError } = await import("@zitadel/client");
-      mockCreateUser.mockRejectedValue(
-        new ConnectError("An account with this email already exists. (EXEC-reUaUZCzCp)", 6),
-      );
+      mockCreateUser.mockRejectedValue(new ConnectError("An account with this email already exists. (EXEC-reUaUZCzCp)", 6));
 
       const result = await processIDPCallback(defaultParams);
 
@@ -1198,6 +1212,29 @@ describe("processIDPCallback", () => {
       expect(result.redirect).toContain("/idp/google/complete-registration");
       expect(result.redirect).toContain("id=intent123");
       expect(result.redirect).toContain("token=token123");
+    });
+
+    // Spalk: an IdP that sends no email has the person enter it on the form
+    test.each([
+      ["no email", undefined],
+      ["an empty email", { email: "", verification: { case: "sendCode", value: {} } }],
+    ])("should redirect to complete registration when the IdP sent %s", async (_, email) => {
+      mockRetrieveIDPIntent.mockResolvedValue({
+        ...defaultIntent,
+        userId: undefined,
+        addHumanUser: {
+          ...defaultIntent.addHumanUser,
+          email,
+        },
+      });
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(mockCreateUser).not.toHaveBeenCalled();
+      expect(result.redirect).toContain("/idp/google/complete-registration");
+      expect(result.redirect).toContain("token=token123");
+      expect(result.redirect).toContain("givenName=Test");
+      expect(result.redirect).not.toContain("email=");
     });
 
     test("should use fallback organization when required fields missing and no org provided", async () => {

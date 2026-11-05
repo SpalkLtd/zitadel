@@ -574,6 +574,11 @@ async function handleAutoLinking(ctx: IDPHandlerContext): Promise<IDPHandlerResu
         return { error: t("errors.sessionCreationFailed") };
       } catch (error) {
         logger.error("Error auto-linking user", { error });
+        // Spalk: a link Spalk's hook refuses shows the hook's message, as auto-creation does.
+        const hookMessage = targetRefusalMessage(error);
+        if (hookMessage) {
+          return { error: hookMessage };
+        }
         const errorMessage = error instanceof Error ? error.message : t("errors.unknownError");
         const params = buildRedirectParams({ error: errorMessage });
         return { redirect: `/idp/${provider}/linking-failed?${params}` };
@@ -618,8 +623,10 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
     }
 
     // Check if required profile fields are present
-    if (!createUserData.profile?.givenName || !createUserData.profile?.familyName) {
-      logger.info("Missing required profile fields (givenName or familyName), redirecting to complete registration");
+    // Spalk: and the email; an IdP that sends none has the person enter it on the form
+    // (registerUserAndLinkToIDP), rather than CreateUser failing on an empty email.
+    if (!createUserData.profile?.givenName || !createUserData.profile?.familyName || !createUserData.email?.email) {
+      logger.info("Missing required fields (givenName, familyName or email), redirecting to complete registration");
 
       if (!idpInformation!.userId) {
         logger.error("IDP intent missing userId, cannot redirect to complete registration");
