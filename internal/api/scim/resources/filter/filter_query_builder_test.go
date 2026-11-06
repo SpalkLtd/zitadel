@@ -496,3 +496,25 @@ func Test_queryBuilder_reduceAttrPaths(t *testing.T) {
 		})
 	}
 }
+
+// Spalk: a value path's sub-attribute condition is both conditions on the one value.
+func TestFilter_BuildQuery_valuePathCondition(t *testing.T) {
+	f, err := ParseFilter(`emails[value ew "@example.com"].value eq "someone@example.com"`)
+	require.NoError(t, err)
+	got, err := f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
+	require.NoError(t, err)
+	require.Equal(t, test.Must(query.NewAndQuery(
+		test.Must(query.NewTextQuery(query.HumanEmailCol, "@example.com", query.TextEndsWith)),
+		test.Must(query.NewTextQuery(query.HumanEmailCol, "someone@example.com", query.TextEquals)),
+	)), got)
+
+	f, err = ParseFilter(`emails[value ew "@example.com"].unknown eq "x"`)
+	require.NoError(t, err)
+	_, err = f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
+	require.Error(t, err)
+
+	f, err = ParseFilter(`unknown[value ew "@example.com"].value eq "x"`)
+	require.NoError(t, err)
+	_, err = f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
+	require.Error(t, err)
+}

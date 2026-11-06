@@ -49,6 +49,12 @@ var fieldPathColumnMapping = filter.FieldPathMapping{
 		Column:    query.HumanEmailCol,
 		FieldType: filter.FieldTypeString,
 	},
+	// Spalk: a user has one email, so a filter on its type matches it whatever the type,
+	// letting directories match on emails[type eq "work"].value (Entra's email matching).
+	"emails.type": {
+		FieldType:        filter.FieldTypeCustom,
+		BuildMappedQuery: buildEmailTypeQuery,
+	},
 	"active": {
 		FieldType:        filter.FieldTypeCustom,
 		BuildMappedQuery: buildActiveUserStateQuery,
@@ -121,6 +127,14 @@ func buildMetadataQuery(ctx context.Context, key metadata.Key, value *filter.Com
 
 	scopedKey := string(metadata.ScopeKey(ctx, key))
 	return query.NewUserMetadataExistsQuery(scopedKey, []byte(*value.StringValue), query.TextEquals, comparisonOperator)
+}
+
+// buildEmailTypeQuery matches every user with an email: Zitadel keeps one email, of no particular type.
+func buildEmailTypeQuery(_ context.Context, compareValue *filter.CompValue, op *filter.CompareOp) (query.SearchQuery, error) {
+	if !op.Equal || compareValue.StringValue == nil {
+		return nil, serrors.ThrowInvalidFilter(zerrors.ThrowInvalidArgument(nil, "SCIM-EMt1", "invalid filter expression: emails.type supports only eq with a string"))
+	}
+	return query.NewNotNullQuery(query.HumanEmailCol)
 }
 
 func buildActiveUserStateQuery(_ context.Context, compareValue *filter.CompValue, op *filter.CompareOp) (query.SearchQuery, error) {
