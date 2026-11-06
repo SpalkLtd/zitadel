@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/muhlemmer/gu"
+	"github.com/stretchr/testify/require"
 )
 
 var longString = ""
@@ -865,4 +866,23 @@ func TestParseFilter(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Spalk: Entra's work-email match compares a value path's sub-attribute.
+func TestParseFilter_valuePathCondition(t *testing.T) {
+	got, err := ParseFilter(`emails[type eq "work"].value eq "someone@example.com"`)
+	require.NoError(t, err)
+	require.Equal(t, &ValuePathCondition{
+		ValuePath: ValuePath{
+			AttrPath: AttrPath{AttrName: "emails"},
+			ValFilter: OrLogExp{Left: AndLogExp{Left: ValueAtom{AttrExp: &AttrExp{BinaryCondition: &BinaryCondition{
+				Left:     AttrPath{AttrName: "type"},
+				Operator: CompareOp{Equal: true},
+				Right:    CompValue{StringValue: gu.Ptr("work")},
+			}}}}},
+		},
+		SubAttr:  "value",
+		Operator: CompareOp{Equal: true},
+		Right:    CompValue{StringValue: gu.Ptr("someone@example.com")},
+	}, got.Root.OrExp.Left.Left.ValuePathCondition)
 }

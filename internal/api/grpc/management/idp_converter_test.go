@@ -289,3 +289,39 @@ func Test_updateZitadelProviderToCommand(t *testing.T) {
 		})
 	}
 }
+
+// Spalk: the generic OIDC IdP's "email verified" option.
+func Test_genericOIDCProviderToCommand_EmailVerified(t *testing.T) {
+	t.Parallel()
+	for _, emailVerified := range []bool{false, true} {
+		want := command.GenericOIDCProvider{
+			Name:          "name",
+			Issuer:        "issuer",
+			ClientID:      "client-id",
+			ClientSecret:  "secret",
+			Scopes:        []string{"openid"},
+			IDPOptions:    idp.Options{IsCreationAllowed: true},
+			EmailVerified: emailVerified,
+		}
+		options := &idp_pb.Options{IsCreationAllowed: true}
+		assert.Equal(t, want, addGenericOIDCProviderToCommand(&mgmt_pb.AddGenericOIDCProviderRequest{
+			Name:            "name",
+			Issuer:          "issuer",
+			ClientId:        "client-id",
+			ClientSecret:    "secret",
+			Scopes:          []string{"openid"},
+			ProviderOptions: options,
+			EmailVerified:   emailVerified,
+		}))
+		assert.Equal(t, want, updateGenericOIDCProviderToCommand(&mgmt_pb.UpdateGenericOIDCProviderRequest{
+			Id:              "id",
+			Name:            "name",
+			Issuer:          "issuer",
+			ClientId:        "client-id",
+			ClientSecret:    "secret",
+			Scopes:          []string{"openid"},
+			ProviderOptions: options,
+			EmailVerified:   emailVerified,
+		}))
+	}
+}

@@ -14,6 +14,7 @@ import { BackButton } from "./back-button";
 import { Button, ButtonVariants } from "./button";
 import { TextInput } from "./input";
 import { PasswordComplexity } from "./password-complexity";
+import { RememberMeCheckbox, useRememberMe } from "./remember-me";
 import { Spinner } from "./spinner";
 import { Translated } from "./translated";
 
@@ -29,6 +30,7 @@ type Props = {
   email: string;
   firstname: string;
   lastname: string;
+  username?: string; // Spalk: from the register form
   organization: string;
   requestId?: string;
 };
@@ -38,6 +40,7 @@ export function SetRegisterPasswordForm({
   email,
   firstname,
   lastname,
+  username,
   organization,
   requestId,
 }: Props) {
@@ -58,6 +61,8 @@ export function SetRegisterPasswordForm({
 
   const router = useRouter();
 
+  const rememberMe = useRememberMe(); // Spalk
+
   async function submitRegister(values: Inputs) {
     setLoading(true);
     try {
@@ -65,9 +70,11 @@ export function SetRegisterPasswordForm({
         email: email,
         firstName: firstname,
         lastName: lastname,
+        username: username, // Spalk: the username they chose
         organization: organization,
         requestId: requestId,
         password: values.password,
+        remember: rememberMe[0], // Spalk
       });
 
       handleServerActionResponse(response, router, setSamlData, setError);
@@ -148,6 +155,8 @@ export function SetRegisterPasswordForm({
             equals={!!watchPassword && watchPassword === watchConfirmPassword}
           />
         )}
+
+        <RememberMeCheckbox state={rememberMe} />
 
         {error && <Alert>{error}</Alert>}
 

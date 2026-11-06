@@ -12,6 +12,7 @@ import { AutoSubmitForm } from "./auto-submit-form";
 import { BackButton } from "./back-button";
 import { Button, ButtonVariants } from "./button";
 import { TextInput } from "./input";
+import { RememberMeCheckbox, useRememberMe } from "./remember-me";
 import { Spinner } from "./spinner";
 import { Translated } from "./translated";
 
@@ -53,12 +54,14 @@ export function UsernameForm({
 
   const router = useRouter();
 
+  const rememberMe = useRememberMe(); // Spalk
+
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [samlData, setSamlData] = useState<{ url: string; fields: Record<string, string> } | null>(null);
 
   const submitLoginName = useCallback(
-    async (values: Inputs, organization?: string) => {
+    async (values: Inputs, organization?: string, remember?: boolean) => {
       setLoading(true);
 
       try {
@@ -68,6 +71,7 @@ export function UsernameForm({
           defaultOrganization,
           requestId,
           suffix,
+          remember, // Spalk
         });
 
         handleServerActionResponse(res, router, setSamlData, setError);
@@ -137,6 +141,8 @@ export function UsernameForm({
           )}
         </div>
 
+        <RememberMeCheckbox state={rememberMe} />
+
         {error && (
           <div className="py-4" data-testid="error">
             <Alert>{error}</Alert>
@@ -151,7 +157,7 @@ export function UsernameForm({
             className="self-end"
             variant={ButtonVariants.Primary}
             disabled={loading || !formState.isValid}
-            onClick={handleSubmit((e) => submitLoginName(e, organization))}
+            onClick={handleSubmit((e) => submitLoginName(e, organization, rememberMe[0]))}
           >
             {loading && <Spinner className="mr-2 h-5 w-5" />}
             <Translated i18nKey="submit" namespace="loginname" />

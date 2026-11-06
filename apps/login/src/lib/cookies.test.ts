@@ -7,10 +7,13 @@ import {
   getLanguageCookie,
   getMostRecentCookieWithLoginname,
   getMostRecentSessionCookie,
+  getRememberMeIntentCookie,
   getSessionCookieById,
   getSessionCookieByLoginName,
   removeSessionFromCookie,
   setLanguageCookie,
+  setRememberMeIntentCookie,
+  takeRememberMeIntentCookie,
   updateSessionCookie,
 } from "./cookies";
 
@@ -57,6 +60,7 @@ describe("cookies", () => {
     mockCookies = {
       get: vi.fn(),
       set: vi.fn(),
+      delete: vi.fn(),
     };
     vi.mocked(cookies).mockResolvedValue(mockCookies);
   });
@@ -992,6 +996,144 @@ describe("cookies", () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0]).toMatchObject(victimSession);
       expect(verifySession(sessions[0])).toBe(true);
+    });
+  });
+
+  // Spalk: a remembered session is kept in a second, persistent cookie; reads take the union of both.
+  describe("remembered sessions", () => {
+    const later = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const remembered: Cookie = {
+      id: "remembered-session",
+      token: "remembered-token",
+      loginName: "kept@example.com",
+      creationTs: `${Date.now()}`,
+      expirationTs: `${later}`,
+      changeTs: `${Date.now()}`,
+      remember: true,
+    };
+    const forgotten: Cookie = {
+      id: "forgotten-session",
+      token: "forgotten-token",
+      loginName: "shared@example.com",
+      creationTs: `${Date.now()}`,
+      expirationTs: `${Date.now() + 60 * 60 * 1000}`,
+      changeTs: `${Date.now()}`,
+    };
+
+    function storedCookies(cookies: { sessions?: Cookie[]; sessions_remembered?: Cookie[] }) {
+      mockCookies.get.mockImplementation((name: "sessions" | "sessions_remembered") =>
+        cookies[name] ? stored(...cookies[name]!) : undefined,
+      );
+    }
+
+    function written(name: string) {
+      const call = mockCookies.set.mock.calls.find(([options]: any[]) => options.name === name);
+      return call && { ...call[0], sessions: call[0].value ? JSON.parse(call[0].value) : [] };
+    }
+
+    it("writes a remembered session to the persistent cookie only, expiring with the session", async () => {
+      storedCookies({ sessions: [forgotten] });
+
+      await addSessionToCookie({ session: remembered });
+
+      expect(written("sessions").sessions.map((s: Cookie) => s.id)).toEqual(["forgotten-session"]);
+      expect(written("sessions").expires).toBeUndefined();
+      const persistent = written("sessions_remembered");
+      expect(persistent.sessions).toHaveLength(1);
+      expect(persistent.sessions[0]).toMatchObject(remembered);
+      expect(verifySession(persistent.sessions[0])).toBe(true);
+      expect(persistent.expires).toEqual(new Date(later));
+      expect(persistent).toMatchObject({ httpOnly: true, path: "/", sameSite: "lax" });
+    });
+
+    it("reads the sessions of both cookies", async () => {
+      storedCookies({ sessions: [forgotten], sessions_remembered: [remembered] });
+
+      await expect(getAllSessionCookieIds()).resolves.toEqual(["forgotten-session", "remembered-session"]);
+      await expect(getSessionCookieById({ sessionId: "remembered-session" })).resolves.toMatchObject(remembered);
+    });
+
+    it("ignores an entry in the persistent cookie that was not remembered", async () => {
+      storedCookies({ sessions_remembered: [forgotten] });
+
+      await expect(getAllSessionCookieIds()).resolves.toEqual([]);
+    });
+
+    it("moves a session to the browser-session cookie when it is signed in again without remembering", async () => {
+      storedCookies({ sessions_remembered: [remembered] });
+
+      await addSessionToCookie({ session: { ...remembered, remember: undefined } });
+
+      expect(written("sessions").sessions.map((s: Cookie) => s.id)).toEqual(["remembered-session"]);
+      expect(written("sessions_remembered")).toMatchObject({ value: "", expires: new Date(0) });
+    });
+
+    it("keeps a session's place when it is updated", async () => {
+      storedCookies({ sessions: [forgotten], sessions_remembered: [remembered] });
+
+      await updateSessionCookie({ id: "remembered-session", session: { ...remembered, token: "new-token" } });
+
+      expect(written("sessions").sessions.map((s: Cookie) => s.id)).toEqual(["forgotten-session"]);
+      expect(written("sessions_remembered").sessions[0].token).toBe("new-token");
+    });
+
+    it("removes a signed-out remembered session from the persistent cookie", async () => {
+      storedCookies({ sessions: [forgotten], sessions_remembered: [remembered] });
+
+      await removeSessionFromCookie({ session: remembered });
+
+      expect(written("sessions").sessions.map((s: Cookie) => s.id)).toEqual(["forgotten-session"]);
+      expect(written("sessions_remembered")).toMatchObject({ value: "", expires: new Date(0) });
+    });
+
+    it("leaves the persistent cookie alone when it holds nothing", async () => {
+      storedCookies({ sessions: [forgotten] });
+
+      await removeSessionFromCookie({ session: forgotten });
+
+      expect(written("sessions_remembered")).toBeUndefined();
+    });
+
+    it("no longer keeps an expired remembered session on the device", async () => {
+      const expired = { ...remembered, expirationTs: `${Date.now() - 1000}` };
+      storedCookies({ sessions_remembered: [expired, { ...remembered, id: "other", loginName: "other@example.com" }] });
+
+      await addSessionToCookie({ session: forgotten });
+
+      expect(written("sessions").sessions.map((s: Cookie) => s.id)).toEqual(["forgotten-session", "remembered-session"]);
+      expect(written("sessions_remembered").sessions.map((s: Cookie) => s.id)).toEqual(["other"]);
+    });
+
+    it("carries the choice to the IdP and back once", async () => {
+      await setRememberMeIntentCookie(true);
+
+      expect(mockCookies.set).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "remember_me_intent", value: "true", httpOnly: true, maxAge: 3600 }),
+      );
+
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "true" } : undefined));
+      await expect(takeRememberMeIntentCookie()).resolves.toBe(true);
+      expect(mockCookies.delete).toHaveBeenCalledWith("remember_me_intent");
+
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "false" } : undefined));
+      await expect(takeRememberMeIntentCookie()).resolves.toBe(false);
+
+      mockCookies.get.mockReturnValue(undefined);
+      mockCookies.delete.mockClear();
+      await expect(takeRememberMeIntentCookie()).resolves.toBeUndefined();
+      expect(mockCookies.delete).not.toHaveBeenCalled();
+    });
+
+    it("lets the password page read the choice without taking it", async () => {
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "true" } : undefined));
+      await expect(getRememberMeIntentCookie()).resolves.toBe(true);
+
+      mockCookies.get.mockImplementation((name: string) => (name === "remember_me_intent" ? { value: "false" } : undefined));
+      await expect(getRememberMeIntentCookie()).resolves.toBe(false);
+
+      mockCookies.get.mockReturnValue(undefined);
+      await expect(getRememberMeIntentCookie()).resolves.toBe(false);
+      expect(mockCookies.delete).not.toHaveBeenCalled();
     });
   });
 });

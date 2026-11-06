@@ -223,6 +223,8 @@ type OIDCIDPWriteModel struct {
 	Scopes           []string
 	IsIDTokenMapping bool
 	UsePKCE          bool
+	// Spalk: see GenericOIDCProvider.EmailVerified.
+	IsEmailVerified bool
 	idp.Options
 
 	State domain.IDPState
@@ -264,6 +266,7 @@ func (wm *OIDCIDPWriteModel) reduceAddedEvent(e *idp.OIDCIDPAddedEvent) {
 	wm.Scopes = e.Scopes
 	wm.IsIDTokenMapping = e.IsIDTokenMapping
 	wm.UsePKCE = e.UsePKCE
+	wm.IsEmailVerified = e.IsEmailVerified // Spalk
 	wm.Options = e.Options
 	wm.State = domain.IDPStateActive
 }
@@ -290,6 +293,10 @@ func (wm *OIDCIDPWriteModel) reduceChangedEvent(e *idp.OIDCIDPChangedEvent) {
 	if e.UsePKCE != nil {
 		wm.UsePKCE = *e.UsePKCE
 	}
+	// Spalk: see GenericOIDCProvider.EmailVerified.
+	if e.IsEmailVerified != nil {
+		wm.IsEmailVerified = *e.IsEmailVerified
+	}
 	wm.Options.ReduceChanges(e.OptionChanges)
 }
 
@@ -300,7 +307,7 @@ func (wm *OIDCIDPWriteModel) NewChanges(
 	clientSecretString string,
 	secretCrypto crypto.EncryptionAlgorithm,
 	scopes []string,
-	idTokenMapping, usePKCE bool,
+	idTokenMapping, usePKCE, isEmailVerified bool, // Spalk: isEmailVerified
 	options idp.Options,
 ) ([]idp.OIDCIDPChanges, error) {
 	changes := make([]idp.OIDCIDPChanges, 0)
@@ -330,6 +337,10 @@ func (wm *OIDCIDPWriteModel) NewChanges(
 	}
 	if wm.UsePKCE != usePKCE {
 		changes = append(changes, idp.ChangeOIDCUsePKCE(usePKCE))
+	}
+	// Spalk: see GenericOIDCProvider.EmailVerified.
+	if wm.IsEmailVerified != isEmailVerified {
+		changes = append(changes, idp.ChangeOIDCIsEmailVerified(isEmailVerified))
 	}
 	opts := wm.Options.Changes(options)
 	if !opts.IsZero() {
@@ -387,13 +398,17 @@ func (wm *OIDCIDPWriteModel) ToProvider(callbackURL string, idpAlg crypto.Encryp
 	if err != nil {
 		return nil, err
 	}
-	opts := make([]oidc.ProviderOpts, 1, 7)
+	opts := make([]oidc.ProviderOpts, 1, 8)
 	opts[0] = oidc.WithSelectAccount()
 	if wm.IsIDTokenMapping {
 		opts = append(opts, oidc.WithIDTokenMapping())
 	}
 	if wm.UsePKCE {
 		opts = append(opts, oidc.WithRelyingPartyOption(rp.WithPKCE(nil)))
+	}
+	// Spalk: see GenericOIDCProvider.EmailVerified.
+	if wm.IsEmailVerified {
+		opts = append(opts, oidc.WithEmailVerified())
 	}
 	if wm.IsCreationAllowed {
 		opts = append(opts, oidc.WithCreationAllowed())

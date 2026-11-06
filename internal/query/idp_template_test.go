@@ -48,6 +48,7 @@ var (
 		` projections.idp_templates6_oidc.scopes,` +
 		` projections.idp_templates6_oidc.id_token_mapping,` +
 		` projections.idp_templates6_oidc.use_pkce,` +
+		` projections.idp_templates6_oidc.is_email_verified,` + // Spalk
 		// jwt
 		` projections.idp_templates6_jwt.idp_id,` +
 		` projections.idp_templates6_jwt.issuer,` +
@@ -188,6 +189,7 @@ var (
 		"scopes",
 		"id_token_mapping",
 		"use_pkce",
+		"is_email_verified", // Spalk
 		// jwt
 		"idp_id",
 		"issuer",
@@ -314,6 +316,7 @@ var (
 		` projections.idp_templates6_oidc.scopes,` +
 		` projections.idp_templates6_oidc.id_token_mapping,` +
 		` projections.idp_templates6_oidc.use_pkce,` +
+		` projections.idp_templates6_oidc.is_email_verified,` + // Spalk
 		// jwt
 		` projections.idp_templates6_jwt.idp_id,` +
 		` projections.idp_templates6_jwt.issuer,` +
@@ -455,6 +458,7 @@ var (
 		"scopes",
 		"id_token_mapping",
 		"use_pkce",
+		"is_email_verified", // Spalk
 		// jwt
 		"idp_id",
 		"issuer",
@@ -615,6 +619,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						"id-attribute",
 						true,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -786,6 +791,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						database.TextArray[string]{"profile"},
 						true,
 						true,
+						true, // Spalk: is_email_verified
 						// jwt
 						nil,
 						nil,
@@ -905,6 +911,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 					Scopes:           []string{"profile"},
 					IsIDTokenMapping: true,
 					UsePKCE:          true,
+					IsEmailVerified:  true, // Spalk
 				},
 			},
 		},
@@ -941,6 +948,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -1109,6 +1117,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						nil,
+						nil,
 						// jwt
 						nil,
 						nil,
@@ -1268,6 +1277,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						nil,
+						nil,
 						// jwt
 						nil,
 						nil,
@@ -1420,6 +1430,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -1587,6 +1598,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						nil,
+						nil,
 						// jwt
 						nil,
 						nil,
@@ -1739,6 +1751,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -1904,6 +1917,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -2091,6 +2105,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						nil,
+						nil,
 						// jwt
 						nil,
 						nil,
@@ -2245,6 +2260,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -2411,6 +2427,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 						nil,
 						nil,
 						// oidc
+						nil,
 						nil,
 						nil,
 						nil,
@@ -2607,6 +2624,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							nil,
+							nil,
 							// jwt
 							nil,
 							nil,
@@ -2796,6 +2814,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							nil,
+							nil,
 							// jwt
 							nil,
 							nil,
@@ -2958,6 +2977,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							nil,
+							nil,
 							// jwt
 							nil,
 							nil,
@@ -3078,6 +3098,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							// oidc
+							nil,
 							nil,
 							nil,
 							nil,
@@ -3212,6 +3233,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							nil,
+							nil,
 							// jwt
 							nil,
 							nil,
@@ -3332,6 +3354,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							"id-attribute",
 							true,
 							// oidc
+							nil,
 							nil,
 							nil,
 							nil,
@@ -3466,6 +3489,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							database.TextArray[string]{"profile"},
 							true,
 							true,
+							true, // Spalk: is_email_verified
 							// jwt
 							nil,
 							nil,
@@ -3593,6 +3617,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							nil,
+							nil,
 							// jwt
 							"idp-id-jwt",
 							"issuer",
@@ -3713,6 +3738,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							nil,
 							nil,
 							// oidc
+							nil,
 							nil,
 							nil,
 							nil,
@@ -3965,6 +3991,7 @@ func Test_IDPTemplateTemplatesPrepares(t *testing.T) {
 							Scopes:           []string{"profile"},
 							IsIDTokenMapping: true,
 							UsePKCE:          true,
+							IsEmailVerified:  true, // Spalk
 						},
 					},
 					{

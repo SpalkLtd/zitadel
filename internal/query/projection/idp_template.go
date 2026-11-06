@@ -82,6 +82,8 @@ const (
 	OIDCScopesCol         = "scopes"
 	OIDCIDTokenMappingCol = "id_token_mapping"
 	OIDCUsePKCECol        = "use_pkce"
+	// Spalk: the generic OIDC IdP's "email verified" option.
+	OIDCIsEmailVerifiedCol = "is_email_verified"
 
 	JWTIDCol           = "idp_id"
 	JWTInstanceIDCol   = "instance_id"
@@ -247,6 +249,7 @@ func (*idpTemplateProjection) Init() *old_handler.Check {
 			handler.NewColumn(OIDCScopesCol, handler.ColumnTypeTextArray, handler.Nullable()),
 			handler.NewColumn(OIDCIDTokenMappingCol, handler.ColumnTypeBool, handler.Default(false)),
 			handler.NewColumn(OIDCUsePKCECol, handler.ColumnTypeBool, handler.Default(false)),
+			handler.NewColumn(OIDCIsEmailVerifiedCol, handler.ColumnTypeBool, handler.Default(false)), // Spalk
 		},
 			handler.NewPrimaryKey(OIDCInstanceIDCol, OIDCIDCol),
 			IDPTemplateOIDCSuffix,
@@ -864,6 +867,7 @@ func (p *idpTemplateProjection) reduceOIDCIDPAdded(event eventstore.Event) (*han
 				handler.NewCol(OIDCScopesCol, database.TextArray[string](idpEvent.Scopes)),
 				handler.NewCol(OIDCIDTokenMappingCol, idpEvent.IsIDTokenMapping),
 				handler.NewCol(OIDCUsePKCECol, idpEvent.UsePKCE),
+				handler.NewCol(OIDCIsEmailVerifiedCol, idpEvent.IsEmailVerified), // Spalk
 			},
 			handler.WithTableSuffix(IDPTemplateOIDCSuffix),
 		),
@@ -2333,6 +2337,10 @@ func reduceOIDCIDPChangedColumns(idpEvent idp.OIDCIDPChangedEvent) []handler.Col
 	}
 	if idpEvent.UsePKCE != nil {
 		oidcCols = append(oidcCols, handler.NewCol(OIDCUsePKCECol, *idpEvent.UsePKCE))
+	}
+	// Spalk: the generic OIDC IdP's "email verified" option.
+	if idpEvent.IsEmailVerified != nil {
+		oidcCols = append(oidcCols, handler.NewCol(OIDCIsEmailVerifiedCol, *idpEvent.IsEmailVerified))
 	}
 	return oidcCols
 }

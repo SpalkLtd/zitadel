@@ -3141,6 +3141,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 	"scopes": ["profile"],
 	"idTokenMapping": true,
 	"usePKCE": true,
+	"isEmailVerified": true,
 	"isCreationAllowed": true,
 	"isLinkingAllowed": true,
 	"isAutoCreation": true,
@@ -3176,7 +3177,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 							},
 						},
 						{
-							expectedStmt: "INSERT INTO projections.idp_templates6_oidc (idp_id, instance_id, issuer, client_id, client_secret, scopes, id_token_mapping, use_pkce) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+							expectedStmt: "INSERT INTO projections.idp_templates6_oidc (idp_id, instance_id, issuer, client_id, client_secret, scopes, id_token_mapping, use_pkce, is_email_verified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 							expectedArgs: []interface{}{
 								"idp-id",
 								"instance-id",
@@ -3184,6 +3185,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 								"client_id",
 								anyArg{},
 								database.TextArray[string]{"profile"},
+								true,
 								true,
 								true,
 							},
@@ -3246,7 +3248,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 							},
 						},
 						{
-							expectedStmt: "INSERT INTO projections.idp_templates6_oidc (idp_id, instance_id, issuer, client_id, client_secret, scopes, id_token_mapping, use_pkce) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+							expectedStmt: "INSERT INTO projections.idp_templates6_oidc (idp_id, instance_id, issuer, client_id, client_secret, scopes, id_token_mapping, use_pkce, is_email_verified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 							expectedArgs: []interface{}{
 								"idp-id",
 								"instance-id",
@@ -3256,6 +3258,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 								database.TextArray[string]{"profile"},
 								true,
 								true,
+								false,
 							},
 						},
 					},
@@ -3324,6 +3327,7 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 	"scopes": ["profile"],
 	"idTokenMapping": true,
 	"usePKCE": true,
+	"isEmailVerified": true,
 	"isCreationAllowed": true,
 	"isLinkingAllowed": true,
 	"isAutoCreation": true,
@@ -3354,12 +3358,13 @@ func TestIDPTemplateProjection_reducesOIDC(t *testing.T) {
 							},
 						},
 						{
-							expectedStmt: "UPDATE projections.idp_templates6_oidc SET (client_id, client_secret, issuer, scopes, id_token_mapping, use_pkce) = ($1, $2, $3, $4, $5, $6) WHERE (idp_id = $7) AND (instance_id = $8)",
+							expectedStmt: "UPDATE projections.idp_templates6_oidc SET (client_id, client_secret, issuer, scopes, id_token_mapping, use_pkce, is_email_verified) = ($1, $2, $3, $4, $5, $6, $7) WHERE (idp_id = $8) AND (instance_id = $9)",
 							expectedArgs: []interface{}{
 								"client_id",
 								anyArg{},
 								"issuer",
 								database.TextArray[string]{"profile"},
+								true,
 								true,
 								true,
 								"idp-id",

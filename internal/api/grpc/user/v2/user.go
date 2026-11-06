@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	"golang.org/x/text/language"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/zitadel/zitadel/internal/api/authz"
 	"github.com/zitadel/zitadel/internal/api/grpc/object/v2"
@@ -194,6 +195,20 @@ func (s *Server) DeleteUser(ctx context.Context, req *connect.Request[user.Delet
 	}
 	return connect.NewResponse(&user.DeleteUserResponse{
 		Details: object.DomainToDetailsPb(details),
+	}), nil
+}
+
+func (s *Server) MoveUser(ctx context.Context, req *connect.Request[user.MoveUserRequest]) (*connect.Response[user.MoveUserResponse], error) {
+	memberships, grants, err := s.removeUserDependencies(ctx, req.Msg.GetUserId())
+	if err != nil {
+		return nil, err
+	}
+	details, err := s.command.MoveUser(ctx, req.Msg.GetUserId(), req.Msg.GetOrganizationId(), memberships, grants)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&user.MoveUserResponse{
+		ChangeDate: timestamppb.New(details.EventDate),
 	}), nil
 }
 

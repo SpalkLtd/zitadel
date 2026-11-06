@@ -1,7 +1,8 @@
 {
   "common": {
     "back": "Back",
-    "title": "Login with Zitadel"
+    "title": "Login with Zitadel",
+    "rememberMe": "Keep me signed in on this device"
   },
   "accounts": {
     "title": "Accounts",
@@ -50,7 +51,8 @@
       "localAuthenticationNotAllowed": "Local authentication is not allowed! Contact your administrator for more information.",
       "passkeysNotAllowed": "Passkeys not allowed! Contact your administrator for more information.",
       "couldNotFindIdentityProvider": "Could not find identity provider.",
-      "userNotActive": "User is not active. Contact your administrator for more information."
+      "userNotActive": "User is not active. Contact your administrator for more information.",
+      "noLoginMethod": "This account has no way to log in. Contact your organisation's administrator."
     }
   },
   "zitadel": {
@@ -153,7 +155,8 @@
       "sessionNotValid": "Session is not valid",
       "passwordVerificationMissing": "Password verification is missing.",
       "passwordVerificationTooOld": "Password verification is too old. Please verify your password again.",
-      "passwordResetNotAllowed": "Password reset is not allowed. Contact your administrator for more information."
+      "passwordResetNotAllowed": "Password reset is not allowed. Contact your administrator for more information.",
+      "emailUndeliverable": "This account's email address can't receive mail. Contact your organisation's administrator."
     }
   },
   "idp": {
@@ -347,14 +350,17 @@
     "labels": {
       "firstname": "First name",
       "lastname": "Last name",
-      "email": "E-mail"
+      "email": "E-mail",
+      "username": "Username"
     },
     "required": {
       "firstname": "This field is required",
       "lastname": "This field is required",
-      "email": "This field is required"
+      "email": "This field is required",
+      "username": "This field is required"
     },
     "errors": {
+      "usernameIsEmail": "A username can't contain @",
       "couldNotCreateUser": "Could not create user",
       "couldNotCreateSession": "Could not create session",
       "userNotFound": "User not found in the system",

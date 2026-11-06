@@ -16,6 +16,32 @@ import (
 )
 
 func (s *Server) createUserTypeHuman(ctx context.Context, humanPb *user.CreateUserRequest_Human, orgId string, userName, userId *string, metadata []*user.Metadata) (*connect.Response[user.CreateUserResponse], error) {
+	// Spalk: the request's conversion is CreateHumanRequestToAddHuman, which SCIM's user creation shares.
+	newHuman, err := CreateHumanRequestToAddHuman(humanPb, orgId, userName, userId, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.command.AddUserHuman(
+		ctx,
+		orgId,
+		newHuman,
+		false,
+		s.userCodeAlg,
+	); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&user.CreateUserResponse{
+		Id:           newHuman.ID,
+		CreationDate: timestamppb.New(newHuman.Details.EventDate),
+		EmailCode:    newHuman.EmailCode,
+		PhoneCode:    newHuman.PhoneCode,
+	}), nil
+}
+
+// CreateHumanRequestToAddHuman converts a CreateUserRequest for a human to the command that creates them.
+//
+// Spalk: shared with SCIM's user creation, which runs CreateUser's executions on the request.
+func CreateHumanRequestToAddHuman(humanPb *user.CreateUserRequest_Human, orgId string, userName, userId *string, metadata []*user.Metadata) (*command.AddHuman, error) {
 	if len(metadata) > 0 && len(humanPb.Metadata) > 0 { //nolint:staticcheck
 		return nil, zerrors.ThrowInvalidArgument(nil, "USERv2-j0z7uy", "Errors.User.Metadata.Conflicting")
 	}
@@ -48,25 +74,7 @@ func (s *Server) createUserTypeHuman(ctx context.Context, humanPb *user.CreateUs
 	default:
 		// optional password is not set
 	}
-	newHuman, err := AddUserRequestToAddHuman(addHumanPb)
-	if err != nil {
-		return nil, err
-	}
-	if err = s.command.AddUserHuman(
-		ctx,
-		orgId,
-		newHuman,
-		false,
-		s.userCodeAlg,
-	); err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&user.CreateUserResponse{
-		Id:           newHuman.ID,
-		CreationDate: timestamppb.New(newHuman.Details.EventDate),
-		EmailCode:    newHuman.EmailCode,
-		PhoneCode:    newHuman.PhoneCode,
-	}), nil
+	return AddUserRequestToAddHuman(addHumanPb)
 }
 
 func setMetadataEntries(metadata []*user.Metadata) []*user.SetMetadataEntry {

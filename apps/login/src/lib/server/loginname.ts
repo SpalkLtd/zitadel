@@ -7,11 +7,13 @@ import { ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { isUndeliverableEmail } from "../client-utils"; // Spalk
 import { idpTypeToIdentityProviderType, idpTypeToSlug } from "../idp";
 
 import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_pb";
 import { IDPLink } from "@zitadel/proto/zitadel/user/v2/idp_pb";
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
+import { setRememberMeIntentCookie } from "../cookies";
 import { getServiceConfig } from "../service-url";
 import {
   getActiveIdentityProviders,
@@ -36,6 +38,7 @@ export type SendLoginnameCommand = {
   organization?: string;
   defaultOrganization?: string;
   suffix?: string;
+  remember?: boolean; // Spalk: the user's "Keep me signed in" choice on the loginname page
 };
 
 const ORG_SUFFIX_REGEX = /(?<=@)(.+)/;
@@ -45,6 +48,11 @@ export async function sendLoginname(command: SendLoginnameCommand) {
   const { serviceConfig } = getServiceConfig(_headers);
 
   const t = await getTranslations("loginname");
+
+  // Spalk: the choice follows the user to the password page, which starts ticked, or to an IdP it sends them to
+  if (command.remember !== undefined) {
+    await setRememberMeIntentCookie(command.remember);
+  }
 
   const loginSettingsByContext = await getLoginSettings({ serviceConfig, organization: command.organization });
 
@@ -130,9 +138,24 @@ export async function sendLoginname(command: SendLoginnameCommand) {
 
     // If no IDP links exist for the user (or no userId provided), try to get active IDPs from the organization
     if (identityProviders.length === 0) {
-      const activeIdps = await getActiveIdentityProviders({ serviceConfig, orgId: organization }).then((resp) => {
+      let activeIdps = await getActiveIdentityProviders({ serviceConfig, orgId: organization }).then((resp) => {
         return resp.identityProviders.filter((idp) => idp.options?.isAutoCreation || idp.options?.isCreationAllowed);
       });
+
+      // Spalk: an unknown login name on an organisation's page goes on only to an identity provider that
+      // organisation owns, its SSO, whose first login creates the person there. An instance-wide one, such as
+      // Google, can't sign anyone up into the organisation (Spalk's user-creation hook refuses it), so sending
+      // them there only confuses: they get "user not found" instead. A provider that can't be read isn't used.
+      if (!userId && organization) {
+        const owners = await Promise.all(
+          activeIdps.map((idp) =>
+            getIDPByID({ serviceConfig, id: idp.id })
+              .then((found) => found?.details?.resourceOwner)
+              .catch(() => undefined),
+          ),
+        );
+        activeIdps = activeIdps.filter((_, i) => owners[i] === organization);
+      }
 
       // If exactly one active IDP exists in the organization, redirect to it
       if (activeIdps.length === 1) {
@@ -362,6 +385,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         isVerified: humanUser?.email?.isVerified,
       });
 
+      // Spalk: an email at a .invalid domain (the placeholder Spalk gives a member their organisation's directory
+      // removed) can never receive the invite code, so the /verify page would be a dead end: say so instead.
+      if (isUndeliverableEmail(humanUser?.email?.email)) {
+        return { error: t("errors.noLoginMethod") };
+      }
+
       // If the user's email is not verified, they likely already have a code from the
       // initial verification email. Auto-sending a new one here invalidates their existing code
       // and causes confusion. Only auto-send if the email is already verified.
@@ -489,7 +518,12 @@ export async function sendLoginname(command: SendLoginnameCommand) {
         }
 
         return { redirect: "/passkey?" + passkeyParams };
-      } else if (methods.authMethodTypes.includes(AuthenticationMethodType.IDP)) {
+      } else if (
+        methods.authMethodTypes.includes(AuthenticationMethodType.IDP) &&
+        // Spalk: a user with a usable password gets the password page, which offers the IdPs below the form,
+        // instead of being sent straight to their linked IdP. Without a usable password they still go to the IdP.
+        !(methods.authMethodTypes.includes(AuthenticationMethodType.PASSWORD) && userLoginSettings?.allowLocalAuthentication)
+      ) {
         return redirectUserToIDP(userId, organization);
       } else if (methods.authMethodTypes.includes(AuthenticationMethodType.PASSWORD)) {
         // Check if password authentication is allowed

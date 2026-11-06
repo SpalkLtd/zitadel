@@ -78,6 +78,7 @@ import (
 	"github.com/zitadel/zitadel/internal/api/robots_txt"
 	"github.com/zitadel/zitadel/internal/api/saml"
 	"github.com/zitadel/zitadel/internal/api/scim"
+	scim_resources "github.com/zitadel/zitadel/internal/api/scim/resources"
 	"github.com/zitadel/zitadel/internal/api/scim/schemas"
 	"github.com/zitadel/zitadel/internal/api/ui/console"
 	"github.com/zitadel/zitadel/internal/api/ui/console/path"
@@ -706,6 +707,8 @@ func startAPIs(
 			keys.User,
 			&config.SCIM,
 			translator,
+			// Spalk: SCIM's user creation runs CreateUser's Actions v2 executions
+			scim_resources.Executions{TargetEncryption: keys.Target, ActiveSigningKey: queries.GetActiveSigningWebKey, HTTPClient: httpClient},
 			instanceInterceptor.HandlerFuncWithError,
 			middleware.AuthorizationInterceptor(verifier, config.SystemAuthZ, config.InternalAuthZ).HandlerFuncWithError(schemas.HandlerPrefix)))
 

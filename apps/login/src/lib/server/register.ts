@@ -1,15 +1,26 @@
 "use server";
 
 import { createSessionAndUpdateCookie, createSessionForIdpAndUpdateCookie } from "@/lib/server/cookie";
-import { addHumanUser, addIDPLink, getLoginSettings, getUserByID, listAuthenticationMethodTypes } from "@/lib/zitadel";
+import {
+  addHumanUser,
+  createUser,
+  getLoginSettings,
+  getUserByID,
+  listAuthenticationMethodTypes,
+  getIDPByID,
+  retrieveIDPIntent,
+} from "@/lib/zitadel";
 import { Code, ConnectError, Duration, create } from "@zitadel/client";
 import { Factors } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { Checks, ChecksJson, ChecksSchema } from "@zitadel/proto/zitadel/session/v2/session_service_pb";
+import { SetHumanEmailSchema } from "@zitadel/proto/zitadel/user/v2/email_pb";
+import { SetHumanProfileSchema } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import crypto from "crypto";
 import { getTranslations } from "next-intl/server";
 import { cookies, headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
 import { getOrSetFingerprintId } from "../fingerprint";
+import { buildCreateUserRequest, withoutCreateEmailCode } from "../idp-create-user";
 import { createLogger } from "../logger";
 import { getServiceConfig } from "../service-url";
 import { checkEmailVerification, checkMFAFactors } from "../verify-helper";
@@ -23,7 +34,12 @@ const RETRY_DELAYS_MS = [500, 1000, 2000];
  * After user creation, backend projections (users, login_names) may not be updated yet.
  * This helper retries createSessionAndUpdateCookie on NotFound errors with increasing delays.
  */
-async function createSessionWithRetry(command: { checks: Checks; requestId: string | undefined; lifetime?: Duration }) {
+async function createSessionWithRetry(command: {
+  checks: Checks;
+  requestId: string | undefined;
+  lifetime?: Duration;
+  remember?: boolean;
+}) {
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_SESSION_RETRIES; attempt++) {
     try {
@@ -45,13 +61,25 @@ async function createSessionWithRetry(command: { checks: Checks; requestId: stri
   throw lastError;
 }
 
+// Spalk: alreadyExistsMessage is the message of a user-creation error that says the
+// username or email is taken: Zitadel's own, or the one Spalk's user-creation hook
+// gives (a 409, which Zitadel returns as AlreadyExists), without Zitadel's error ID.
+function alreadyExistsMessage(error: unknown): string | undefined {
+  if (!(error instanceof ConnectError) || error.code !== Code.AlreadyExists) {
+    return undefined;
+  }
+  return error.rawMessage.replace(/ \([A-Za-z0-9]+-[A-Za-z0-9]+\)$/, "") || undefined;
+}
+
 type RegisterUserCommand = {
   email: string;
   firstName: string;
   lastName: string;
+  username?: string; // Spalk: the username the user chose
   password?: string;
   organization: string;
   requestId?: string;
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
 
 export type RegisterUserResponse = {
@@ -85,15 +113,20 @@ export async function registerUser(
     email: command.email,
     firstName: command.firstName,
     lastName: command.lastName,
+    username: command.username,
     password: command.password ? command.password : undefined,
     organization: command.organization,
   }).catch((error) => {
     logger.error("Failed to create user", { error });
-    return null;
+    // Spalk: a taken username or email is the user's to fix, so they are told which
+    return alreadyExistsMessage(error) ?? null;
   });
 
   if (!addResponse) {
     return { error: t("errors.couldNotCreateUser") };
+  }
+  if (typeof addResponse === "string") {
+    return { error: addResponse };
   }
 
   let checkPayload: any = {
@@ -113,6 +146,8 @@ export async function registerUser(
     checks,
     requestId: command.requestId,
     lifetime: command.password ? loginSettings?.passwordCheckLifetime : undefined,
+    // Spalk: only a password registration asks; a passkey one has no credential yet
+    remember: command.password ? !!command.remember : undefined,
   }).catch((error) => {
     logger.error("Failed to create session after user creation", { error });
     return null;
@@ -223,30 +258,78 @@ export async function registerUserAndLinkToIDP(
     return { error: t("errors.couldNotGetLoginSettings") };
   }
 
+  // Spalk: the user is created as login v2's auto-creation creates one, from the
+  // IdP intent, retrieved again here: with the IdP's email, verified as the IdP
+  // says, and the IdP link, in one call. Only the names come from the form,
+  // which the IdP left out. Upstream created the user from the form, its email
+  // unverified and editable, then linked the IdP in a second call, which
+  // Spalk's user-creation hook refuses for an unverified email, leaving a user
+  // with neither a password nor a link. The form's email is used only when the
+  // IdP sent none.
+  const intent = await retrieveIDPIntent({
+    serviceConfig,
+    id: command.idpIntent.idpIntentId,
+    token: command.idpIntent.idpIntentToken,
+  }).catch((error) => {
+    logger.error("Failed to retrieve the IDP intent", { error });
+    return undefined;
+  });
+
+  // Spalk: an IdP sign-up is allowed by the organisation's login settings, as
+  // upstream's, or by the IdP's own "creation allowed", as login v2's other IdP
+  // paths are (idp-intent.ts, register/page.tsx). Spalk's organisations turn
+  // registration off, so the first login through an organisation's own SSO was
+  // refused whenever the IdP left a name out and sent the person to this form.
+  // The IdP is the intent's, not the form's. Spalk's user-creation hook still
+  // refuses a sign-up into an organisation through any IdP but its own.
   if (!loginSettings.allowRegister) {
-    return { error: t("errors.registerNotAllowed") };
+    const idpId = intent?.idpInformation?.idpId;
+    const idp = idpId
+      ? await getIDPByID({ serviceConfig, id: idpId }).catch((error) => {
+          logger.error("Failed to get the IDP", { error });
+          return undefined;
+        })
+      : undefined;
+    if (!idp?.config?.options?.isCreationAllowed) {
+      return { error: t("errors.registerNotAllowed") };
+    }
   }
 
-  const addUserResponse = await addHumanUser({
-    serviceConfig,
-    email: command.email,
-    firstName: command.firstName,
-    lastName: command.lastName,
-    organization: command.organization,
+  // Spalk: the sign-in below sends the only email code (withoutCreateEmailCode)
+  const builtRequest = intent ? buildCreateUserRequest(intent, command.organization) : undefined;
+  const createUserRequest = builtRequest && withoutCreateEmailCode(builtRequest);
+  if (!createUserRequest || createUserRequest.userType.case !== "human") {
+    return { error: t("errors.couldNotCreateUser") };
+  }
+  const human = createUserRequest.userType.value;
+  // Spalk: an IdP that sends no email has the person enter one on the form. It is
+  // created unverified, and the sign-in below has them verify it with a code.
+  if (!human.email?.email) {
+    if (!command.email) {
+      return { error: t("errors.couldNotCreateUser") };
+    }
+    human.email = create(SetHumanEmailSchema, {
+      email: command.email,
+      verification: { case: "isVerified", value: false },
+    });
+  }
+  human.profile = create(SetHumanProfileSchema, {
+    ...human.profile,
+    givenName: command.firstName,
+    familyName: command.lastName,
   });
 
-  const idpLink = await addIDPLink({
-    serviceConfig,
-    idp: {
-      id: command.idpId,
-      userId: command.idpUserId,
-      userName: command.idpUserName,
-    },
-    userId: addUserResponse.userId,
-  });
-
-  if (!idpLink) {
-    return { error: t("errors.couldNotLinkIDP") };
+  const addUserResponse = await createUser({ serviceConfig, request: createUserRequest })
+    .then((response) => ({ userId: response.id }))
+    .catch((error) => {
+      logger.error("Failed to create user", { error });
+      return alreadyExistsMessage(error) ?? null;
+    });
+  if (!addUserResponse) {
+    return { error: t("errors.couldNotCreateUser") };
+  }
+  if (typeof addUserResponse === "string") {
+    return { error: addUserResponse };
   }
 
   const session = await createSessionForIdpAndUpdateCookie({
@@ -260,23 +343,26 @@ export async function registerUserAndLinkToIDP(
     return { error: t("errors.couldNotCreateSession") };
   }
 
-  // const userResponse = await getUserByID({
-  //   serviceConfig.baseUrl,
-  //   userId: session?.factors?.user?.id,
-  // });
+  // Spalk: an email the IdP didn't verify (or the person entered) is verified with
+  // one code before the login completes, as auto-creation's sign-in does
+  // (createNewSessionFromIdpIntent). Upstream had this check commented out.
+  const userResponse = await getUserByID({ serviceConfig, userId: session.factors.user.id }).catch((error) => {
+    logger.error("Failed to get user after session creation", { error });
+    return null;
+  });
 
-  // if (!userResponse.user) {
-  //   return { error: "User not found in the system" };
-  // }
+  if (!userResponse?.user) {
+    return { error: t("errors.userNotFound") };
+  }
 
-  // const humanUser = userResponse.user.type.case === "human" ? userResponse.user.type.value : undefined;
+  const humanUser = userResponse.user.type.case === "human" ? userResponse.user.type.value : undefined;
 
   // check to see if user was verified
-  // const emailVerificationCheck = checkEmailVerification(session, humanUser, command.organization, command.requestId);
+  const emailVerificationCheck = await checkEmailVerification(session, humanUser, command.organization, command.requestId);
 
-  // if (emailVerificationCheck?.redirect) {
-  //   return emailVerificationCheck;
-  // }
+  if (emailVerificationCheck?.redirect) {
+    return emailVerificationCheck;
+  }
 
   // check if user has MFA methods
   let authMethods;

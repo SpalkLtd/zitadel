@@ -838,6 +838,7 @@ func TestCommandSide_AddInstanceGenericOIDCIDP(t *testing.T) {
 							nil,
 							false,
 							true,
+							false,
 							idp.Options{},
 						),
 					),
@@ -880,6 +881,7 @@ func TestCommandSide_AddInstanceGenericOIDCIDP(t *testing.T) {
 							[]string{openid.ScopeOpenID},
 							true,
 							true,
+							true, // Spalk: isEmailVerified
 							idp.Options{
 								IsCreationAllowed: true,
 								IsLinkingAllowed:  true,
@@ -902,6 +904,7 @@ func TestCommandSide_AddInstanceGenericOIDCIDP(t *testing.T) {
 					Scopes:           []string{openid.ScopeOpenID},
 					IsIDTokenMapping: true,
 					UsePKCE:          true,
+					EmailVerified:    true, // Spalk
 					IDPOptions: idp.Options{
 						IsCreationAllowed: true,
 						IsLinkingAllowed:  true,
@@ -1066,6 +1069,7 @@ func TestCommandSide_UpdateInstanceGenericOIDCIDP(t *testing.T) {
 								nil,
 								false,
 								false,
+								false,
 								idp.Options{},
 							)),
 					),
@@ -1104,6 +1108,7 @@ func TestCommandSide_UpdateInstanceGenericOIDCIDP(t *testing.T) {
 								nil,
 								false,
 								false,
+								false,
 								idp.Options{},
 							)),
 					),
@@ -1125,6 +1130,7 @@ func TestCommandSide_UpdateInstanceGenericOIDCIDP(t *testing.T) {
 									idp.ChangeOIDCScopes([]string{"openid", "profile"}),
 									idp.ChangeOIDCIsIDTokenMapping(true),
 									idp.ChangeOIDCUsePKCE(true),
+									idp.ChangeOIDCIsEmailVerified(true), // Spalk
 									idp.ChangeOIDCOptions(idp.OptionChanges{
 										IsCreationAllowed: &t,
 										IsLinkingAllowed:  &t,
@@ -1150,6 +1156,7 @@ func TestCommandSide_UpdateInstanceGenericOIDCIDP(t *testing.T) {
 					Scopes:           []string{"openid", "profile"},
 					IsIDTokenMapping: true,
 					UsePKCE:          true,
+					EmailVerified:    true, // Spalk
 					IDPOptions: idp.Options{
 						IsCreationAllowed: true,
 						IsLinkingAllowed:  true,
@@ -1294,6 +1301,7 @@ func TestCommandSide_MigrateInstanceGenericOIDCToAzureADProvider(t *testing.T) {
 								nil,
 								false,
 								false,
+								false,
 								idp.Options{},
 							)),
 					),
@@ -1351,6 +1359,7 @@ func TestCommandSide_MigrateInstanceGenericOIDCToAzureADProvider(t *testing.T) {
 									Crypted:    []byte("clientSecret"),
 								},
 								nil,
+								false,
 								false,
 								false,
 								idp.Options{},
@@ -1518,6 +1527,7 @@ func TestCommandSide_MigrateInstanceOIDCToGoogleIDP(t *testing.T) {
 								nil,
 								false,
 								false,
+								false,
 								idp.Options{},
 							)),
 					),
@@ -1569,6 +1579,7 @@ func TestCommandSide_MigrateInstanceOIDCToGoogleIDP(t *testing.T) {
 									Crypted:    []byte("clientSecret"),
 								},
 								nil,
+								false,
 								false,
 								false,
 								idp.Options{},

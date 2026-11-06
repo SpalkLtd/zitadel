@@ -45,10 +45,22 @@ type AndLogExp struct {
 }
 
 type ValueAtom struct {
-	SubFilter *Segment   `parser:"'(' @@ ')' |"`
-	Negation  *Segment   `parser:"'not' '(' @@ ')' |"`
-	ValuePath *ValuePath `parser:"@@ |"`
-	AttrExp   *AttrExp   `parser:"@@"`
+	SubFilter *Segment `parser:"'(' @@ ')' |"`
+	Negation  *Segment `parser:"'not' '(' @@ ')' |"`
+	// Spalk: Entra filters on a value path's sub-attribute, e.g. emails[type eq "work"].value eq "x"
+	ValuePathCondition *ValuePathCondition `parser:"@@ |"`
+	ValuePath          *ValuePath          `parser:"@@ |"`
+	AttrExp            *AttrExp            `parser:"@@"`
+}
+
+// ValuePathCondition compares a sub-attribute of the elements a value path selects:
+// attrPath "[" valFilter "]" "." subAttr SP compareOp SP compValue.
+// Not in RFC 7644's filter ABNF, but Entra ID sends it to match users on their work email.
+type ValuePathCondition struct {
+	ValuePath ValuePath `parser:"@@"`
+	SubAttr   string    `parser:"'.' @AttrName Whitespace"`
+	Operator  CompareOp `parser:"@@ Whitespace"`
+	Right     CompValue `parser:"@@"`
 }
 
 // ValuePath The value path according to the filter ABNF

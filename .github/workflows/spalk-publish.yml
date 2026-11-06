@@ -1,0 +1,27 @@
+# Spalk: publish the fork's image to Spalk's private ECR. Run by hand from the default branch, spalk:
+# Actions > Spalk publish image > Run workflow, with a git tag such as v4.19.4-spalk.1 and an environment.
+# It calls spalk-publish-image.yml at a pinned commit; see that file for how the pin and Spalk's AWS role fit together.
+name: Spalk publish image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to build, also the image tag (e.g. v4.19.4-spalk.2)
+        required: true
+      environment:
+        description: Spalk environment whose ECR receives the images
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    uses: SpalkLtd/zitadel/.github/workflows/spalk-publish-image.yml@9781dde4176d2884d3ec508807e8fb88e8886cb9
+    with:
+      tag: ${{ inputs.tag }}
+      environment: ${{ inputs.environment }}

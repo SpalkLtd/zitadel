@@ -11,6 +11,7 @@ import (
 
 	"github.com/zitadel/zitadel/internal/api/scim/metadata"
 	"github.com/zitadel/zitadel/internal/api/scim/resources/filter"
+	"github.com/zitadel/zitadel/internal/api/scim/schemas"
 	"github.com/zitadel/zitadel/internal/domain"
 	"github.com/zitadel/zitadel/internal/query"
 	"github.com/zitadel/zitadel/internal/test"
@@ -141,4 +142,44 @@ func Test_buildActiveUserStateQuery(t *testing.T) {
 			assert.Equalf(t, tt.want, got, "buildActiveUserStateQuery(%#v, %#v)", tt.compareValue, tt.compOp)
 		})
 	}
+}
+
+func Test_buildEmailTypeQuery(t *testing.T) {
+	ctx := context.Background()
+	work, home := "work", "home"
+	tests := []struct {
+		name    string
+		value   *filter.CompValue
+		op      *filter.CompareOp
+		want    query.SearchQuery
+		wantErr bool
+	}{
+		{"eq work", &filter.CompValue{StringValue: &work}, &filter.CompareOp{Equal: true}, test.Must(query.NewNotNullQuery(query.HumanEmailCol)), false},
+		{"eq another type", &filter.CompValue{StringValue: &home}, &filter.CompareOp{Equal: true}, test.Must(query.NewNotNullQuery(query.HumanEmailCol)), false},
+		{"unsupported operator", &filter.CompValue{StringValue: &work}, &filter.CompareOp{NotEqual: true}, nil, true},
+		{"unsupported comparison value", &filter.CompValue{BooleanTrue: true}, &filter.CompareOp{Equal: true}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildEmailTypeQuery(ctx, tt.value, tt.op)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Entra matches users on emails[type eq "work"].value.
+func Test_fieldPathColumnMapping_entraEmailMatch(t *testing.T) {
+	f, err := filter.ParseFilter(`emails[type eq "work"].value eq "someone@example.com"`)
+	require.NoError(t, err)
+	got, err := f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
+	require.NoError(t, err)
+	require.Equal(t, test.Must(query.NewAndQuery(
+		test.Must(query.NewNotNullQuery(query.HumanEmailCol)),
+		test.Must(query.NewTextQuery(query.HumanEmailCol, "someone@example.com", query.TextEqualsIgnoreCase)),
+	)), got)
 }

@@ -1,4 +1,5 @@
 import { DynamicTheme } from "@/components/dynamic-theme";
+import { RememberMeProvider } from "@/components/remember-me";
 import { SignInWithIdp } from "@/components/sign-in-with-idp";
 import { Translated } from "@/components/translated";
 import { UsernameForm } from "@/components/username-form";
@@ -61,34 +62,38 @@ export default async function Page(props: { searchParams: Promise<Record<string 
         </p>
       </div>
 
-      <div className="w-full">
-        {loginSettings?.allowLocalAuthentication && (
-          <UsernameForm
-            loginName={loginName}
-            requestId={requestId}
-            organization={organization} // stick to "organization" as we still want to do user discovery based on the searchParams not the default organization, later the organization is determined by the found user
-            defaultOrganization={defaultOrganization}
-            loginSettings={loginSettings}
-            suffix={orgDomain}
-            hideSuffix={branding?.hideLoginNameSuffix}
-            submit={submit}
-            allowRegister={!!loginSettings?.allowRegister}
-          ></UsernameForm>
-        )}
-
-        {loginSettings?.allowExternalIdp && !!identityProviders?.length && (
-          <div className="w-full pt-6 pb-4">
-            <SignInWithIdp
-              identityProviders={identityProviders}
+      {/* Spalk: one "Keep me signed in" choice, under the loginname, for it and the IdPs */}
+      <RememberMeProvider>
+        <div className="w-full">
+          {loginSettings?.allowLocalAuthentication && (
+            <UsernameForm
+              loginName={loginName}
               requestId={requestId}
-              organization={organization}
-              postErrorRedirectUrl="/loginname"
-              loginHint={idpLoginHint}
-              showLabel={loginSettings?.allowLocalAuthentication}
-            ></SignInWithIdp>
-          </div>
-        )}
-      </div>
+              organization={organization} // stick to "organization" as we still want to do user discovery based on the searchParams not the default organization, later the organization is determined by the found user
+              defaultOrganization={defaultOrganization}
+              loginSettings={loginSettings}
+              suffix={orgDomain}
+              hideSuffix={branding?.hideLoginNameSuffix}
+              submit={submit}
+              allowRegister={!!loginSettings?.allowRegister}
+            ></UsernameForm>
+          )}
+
+          {loginSettings?.allowExternalIdp && !!identityProviders?.length && (
+            <div className="w-full pt-6 pb-4">
+              <SignInWithIdp
+                identityProviders={identityProviders}
+                requestId={requestId}
+                organization={organization}
+                postErrorRedirectUrl="/loginname"
+                loginHint={idpLoginHint}
+                showLabel={loginSettings?.allowLocalAuthentication}
+                showRememberMe={!loginSettings?.allowLocalAuthentication} // Spalk: else the form shows it
+              ></SignInWithIdp>
+            </div>
+          )}
+        </div>
+      </RememberMeProvider>
     </DynamicTheme>
   );
 }

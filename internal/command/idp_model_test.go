@@ -17,6 +17,7 @@ import (
 	"github.com/zitadel/zitadel/internal/domain"
 	providers "github.com/zitadel/zitadel/internal/idp"
 	"github.com/zitadel/zitadel/internal/idp/providers/oauth"
+	"github.com/zitadel/zitadel/internal/idp/providers/oidc"
 	"github.com/zitadel/zitadel/internal/idp/providers/zitadel"
 	"github.com/zitadel/zitadel/internal/zerrors"
 )
@@ -449,6 +450,48 @@ func TestOIDCIDPWriteModel_ToProvider_WithPKCE(t *testing.T) {
 	require.True(t, discoveryRequested.Load(), "expected OIDC discovery to be requested")
 
 	assertProviderUsesPKCE(t, provider)
+}
+
+// Spalk: the generic OIDC IdP's "email verified" option reaches the provider,
+// which then marks an unverified email claim as verified.
+func TestOIDCIDPWriteModel_ToProvider_EmailVerified(t *testing.T) {
+	var issuer string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		assert.NoError(t, json.NewEncoder(w).Encode(&oidc_pkg.DiscoveryConfiguration{
+			Issuer:                issuer,
+			AuthorizationEndpoint: issuer + "/authorize",
+			TokenEndpoint:         issuer + "/token",
+			UserinfoEndpoint:      issuer + "/userinfo",
+		}))
+	}))
+	t.Cleanup(server.Close)
+	issuer = server.URL
+
+	for _, isEmailVerified := range []bool{false, true} {
+		wm := &OIDCIDPWriteModel{
+			Name:             "OIDC",
+			Issuer:           issuer,
+			ClientID:         "clientID",
+			ClientSecret:     &crypto.CryptoValue{Algorithm: "plain", Crypted: []byte("clientSecret"), KeyID: "keyID"},
+			Scopes:           []string{"openid"},
+			IsIDTokenMapping: true,
+			IsEmailVerified:  isEmailVerified,
+		}
+		provider, err := wm.ToProvider("https://zitadel.example.com/idps/callback", plainTextEncryption{}, http.DefaultClient)
+		require.NoError(t, err)
+
+		claims := &oidc_pkg.IDTokenClaims{}
+		claims.Subject = "sub"
+		claims.Email = "user@example.com"
+		session := &oidc.Session{
+			Provider: provider.(*oidc.Provider),
+			Tokens:   &oidc_pkg.Tokens[*oidc_pkg.IDTokenClaims]{IDTokenClaims: claims},
+		}
+		user, err := session.FetchUser(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, isEmailVerified, user.IsEmailVerified())
+	}
 }
 
 func TestZitadelIDPWriteModel_ToProvider(t *testing.T) {

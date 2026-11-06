@@ -2,6 +2,7 @@ import { PasskeysType } from "@zitadel/proto/zitadel/settings/v2/login_settings_
 import { UserState } from "@zitadel/proto/zitadel/user/v2/user_pb";
 import { AuthenticationMethodType } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { setRememberMeIntentCookie } from "../cookies";
 import { getIDPByID } from "../zitadel";
 import { sendLoginname } from "./loginname";
 
@@ -32,6 +33,10 @@ vi.mock("../zitadel", () => ({
   listIDPLinks: vi.fn(),
   searchUsers: vi.fn(),
   startIdentityProviderFlow: vi.fn(),
+}));
+
+vi.mock("../cookies", () => ({
+  setRememberMeIntentCookie: vi.fn(),
 }));
 
 vi.mock("./cookie", () => ({
@@ -126,6 +131,25 @@ describe("sendLoginname", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Spalk
+  describe("Keep me signed in", () => {
+    test.each([true, false])("stores the choice remember=%s for the next page", async (remember) => {
+      mockGetLoginSettings.mockResolvedValue(null);
+
+      await sendLoginname({ loginName: "user@example.com", remember });
+
+      expect(setRememberMeIntentCookie).toHaveBeenCalledWith(remember);
+    });
+
+    test("leaves the choice alone when not asked", async () => {
+      mockGetLoginSettings.mockResolvedValue(null);
+
+      await sendLoginname({ loginName: "user@example.com" });
+
+      expect(setRememberMeIntentCookie).not.toHaveBeenCalled();
+    });
   });
 
   describe("Error cases", () => {
@@ -239,6 +263,42 @@ describe("sendLoginname", () => {
       expect((result as any).redirect).toContain("loginName=user%40example.com");
       expect((result as any).redirect).toContain("invite=true");
       expect((result as any).redirect).toContain("requestId=req123");
+    });
+
+    // Spalk
+    test("tells a user with no authentication methods and an email at a .invalid domain so, sending no code", async () => {
+      const { trySendVerification } = await import("./verify");
+      mockSearchUsers.mockResolvedValue({
+        result: [
+          {
+            ...mockUser,
+            type: { case: "human", value: { email: { email: "user123@removed.invalid", isVerified: true } } },
+          },
+        ],
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+
+      const result = await sendLoginname({ loginName: "user@example.com", organization: "org123" });
+
+      expect(result).toEqual({ error: "errors.noLoginMethod" });
+      expect(trySendVerification).not.toHaveBeenCalled();
+    });
+
+    // Spalk
+    test("sends a user with no authentication methods and a deliverable verified email an invite code", async () => {
+      const { trySendVerification } = await import("./verify");
+      vi.mocked(trySendVerification).mockResolvedValueOnce(true);
+      mockSearchUsers.mockResolvedValue({
+        result: [
+          { ...mockUser, type: { case: "human", value: { email: { email: "user@example.com", isVerified: true } } } },
+        ],
+      });
+      mockListAuthenticationMethodTypes.mockResolvedValue({ authMethodTypes: [] });
+
+      const result = await sendLoginname({ loginName: "user@example.com", organization: "org123" });
+
+      expect(trySendVerification).toHaveBeenCalledWith(expect.objectContaining({ userId: "user123", isInvite: true }));
+      expect((result as any).redirect).toContain("codeSent=true");
     });
 
     describe("Single authentication method", () => {
@@ -524,7 +584,34 @@ describe("sendLoginname", () => {
         });
       });
 
-      test("should redirect to IDP when no passkey but IDP available", async () => {
+      // Spalk: a user with a password and an IdP gets the password page, which offers the IdP, not the IdP.
+      test("should redirect to password when no passkey but password and IDP available and password allowed", async () => {
+        mockListAuthenticationMethodTypes.mockResolvedValue({
+          authMethodTypes: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.IDP],
+        });
+        mockListIDPLinks.mockResolvedValue({
+          result: [{ idpId: "idp123" }],
+        });
+        mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
+
+        const result = await sendLoginname({
+          loginName: "user@example.com",
+          requestId: "req123",
+          organization: "org123",
+        });
+
+        expect(mockStartIdentityProviderFlow).not.toHaveBeenCalled();
+        expect(result).toHaveProperty("redirect");
+        const redirect = (result as any).redirect as string;
+        expect(redirect).toMatch(/^\/password\?/);
+        const params = new URLSearchParams(redirect.split("?")[1]);
+        expect(params.get("loginName")).toBe("user@example.com");
+        expect(params.get("requestId")).toBe("req123");
+        expect(params.get("organization")).toBe("org123");
+      });
+
+      test("should redirect to IDP when user has password and IDP but password not allowed", async () => {
+        mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: false });
         mockListAuthenticationMethodTypes.mockResolvedValue({
           authMethodTypes: [AuthenticationMethodType.PASSWORD, AuthenticationMethodType.IDP],
         });
@@ -538,6 +625,44 @@ describe("sendLoginname", () => {
         });
 
         expect(result).toEqual({ redirect: "https://idp.example.com/auth" });
+      });
+
+      test("should redirect to IDP when user has IDP and a second factor but no password", async () => {
+        mockListAuthenticationMethodTypes.mockResolvedValue({
+          authMethodTypes: [AuthenticationMethodType.IDP, AuthenticationMethodType.TOTP],
+        });
+        mockListIDPLinks.mockResolvedValue({
+          result: [{ idpId: "idp123" }],
+        });
+        mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
+
+        const result = await sendLoginname({
+          loginName: "user@example.com",
+        });
+
+        expect(result).toEqual({ redirect: "https://idp.example.com/auth" });
+      });
+
+      test("should still prefer passkey when user has passkey, password and IDP", async () => {
+        mockListAuthenticationMethodTypes.mockResolvedValue({
+          authMethodTypes: [
+            AuthenticationMethodType.PASSWORD,
+            AuthenticationMethodType.IDP,
+            AuthenticationMethodType.PASSKEY,
+          ],
+        });
+        mockListIDPLinks.mockResolvedValue({
+          result: [{ idpId: "idp123" }],
+        });
+        mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
+
+        const result = await sendLoginname({
+          loginName: "user@example.com",
+        });
+
+        expect(mockStartIdentityProviderFlow).not.toHaveBeenCalled();
+        expect((result as any).redirect).toMatch(/^\/passkey\?/);
+        expect((result as any).redirect).toContain("altPassword=true");
       });
 
       test("should redirect to password when no passkey or IDP, only password available and allowed", async () => {
@@ -659,6 +784,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp-entra", type: "OIDC", options: { isCreationAllowed: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-sso" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://entra.example.com/auth" });
 
       const result = await sendLoginname({
@@ -762,6 +889,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp123", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "org123" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -791,6 +920,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp456", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-789" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://company-idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -832,6 +963,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp789", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-101" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://example-idp.example.com/auth" });
 
       const result = await sendLoginname({
@@ -840,6 +973,33 @@ describe("sendLoginname", () => {
       });
 
       expect(result).toEqual({ redirect: "https://example-idp.example.com/auth" });
+    });
+
+    // Spalk: an organisation's page sends an unknown login name only to a provider the organisation owns
+    test.each([
+      ["an instance-wide provider", () => mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "instance123" } })],
+      ["a provider that can't be read", () => mockGetIDPByID.mockRejectedValue(new Error("unavailable"))],
+    ])("should not redirect an unknown user on an organisation's page to %s", async (_, mockOwner) => {
+      mockGetLoginSettings.mockResolvedValue({
+        allowRegister: false,
+        allowLocalAuthentication: true,
+      });
+      mockGetActiveIdentityProviders.mockResolvedValue({
+        identityProviders: [{ id: "google123", type: "GOOGLE", options: { isCreationAllowed: true } }],
+      });
+      mockOwner();
+
+      const result = await sendLoginname({
+        loginName: "someone",
+        organization: "org123",
+      });
+
+      expect(result).toEqual({ error: "errors.userNotFound" });
+      expect(mockGetIDPByID).toHaveBeenCalledWith({
+        serviceConfig: { baseUrl: "https://api.example.com" },
+        id: "google123",
+      });
+      expect(mockStartIdentityProviderFlow).not.toHaveBeenCalled();
     });
 
     test("should return error when allowRegister: false, allowLocalAuthentication: true, discovered org but no active IDP", async () => {
@@ -931,6 +1091,8 @@ describe("sendLoginname", () => {
       mockGetActiveIdentityProviders.mockResolvedValue({
         identityProviders: [{ id: "idp123", type: "OIDC", options: { isAutoCreation: true } }],
       });
+      // Spalk: the organisation owns the provider, as its SSO
+      mockGetIDPByID.mockResolvedValue({ details: { resourceOwner: "discovered-org-456" } });
       mockStartIdentityProviderFlow.mockResolvedValue({ url: "https://idp.example.com/auth?org=discovered-org-456" });
 
       const result = await sendLoginname({

@@ -16,9 +16,11 @@ vi.mock("@zitadel/client", () => ({
   timestampDate: vi.fn((ts: { seconds: bigint | number }) => new Date(Number(ts.seconds) * 1000)),
   ConnectError: class extends Error {
     code: any;
+    rawMessage: string;
     constructor(message: string, code: any) {
       super(message);
       this.code = code;
+      this.rawMessage = message;
     }
   },
   Code: {
@@ -814,6 +816,22 @@ describe("processIDPCallback", () => {
 
       expect(result.redirect).toContain("/idp/google/linking-failed");
     });
+
+    // Spalk: a link Spalk's hook refuses shows the hook's message, not Zitadel's error text in the URL
+    test("should show the message of a hook that refuses the link", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockListUsers.mockResolvedValue({
+        result: [{ userId: "found123", details: { resourceOwner: "org123" } }],
+      });
+      mockAddIDPLink.mockRejectedValue(
+        new ConnectError("This account belongs to another organisation. (EXEC-bmhNhpcqpF)", 9),
+      );
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(result).toEqual({ error: "This account belongs to another organisation." });
+      expect(mockCreateNewSessionFromIdpIntent).not.toHaveBeenCalled();
+    });
   });
 
   describe("CASE 3: Auto-linking by username", () => {
@@ -956,6 +974,51 @@ describe("processIDPCallback", () => {
       expect(result.redirect).toBe("https://app.example.com/success");
     });
 
+    test("should create an email the IdP did not verify as unverified so the sign-in's code is the only one", async () => {
+      const idpLinks = [{ idpId: "idp123", userId: "ext123", userName: "testuser" }];
+      mockRetrieveIDPIntent.mockResolvedValue({
+        ...defaultIntent,
+        userId: undefined,
+        addHumanUser: undefined,
+        updateHumanUser: undefined,
+        userAction: {
+          case: "createUser",
+          value: {
+            username: "testuser",
+            userType: {
+              case: "human",
+              value: {
+                profile: { givenName: "Test", familyName: "User" },
+                email: { email: "test@example.com", verification: { case: "sendCode", value: {} } },
+                idpLinks,
+              },
+            },
+          },
+        },
+      });
+      mockCreateUser.mockResolvedValue({ id: "newuser123" });
+
+      await processIDPCallback(defaultParams);
+
+      expect(mockCreateUser).toHaveBeenCalledWith({
+        serviceConfig: { baseUrl: "https://api.example.com" },
+        request: {
+          organizationId: "org123",
+          username: "testuser",
+          userType: {
+            case: "human",
+            value: {
+              profile: { givenName: "Test", familyName: "User" },
+              email: { email: "test@example.com", verification: { case: "isVerified", value: false } },
+              idpLinks,
+            },
+          },
+        },
+      });
+      // createNewSessionFromIdpIntent runs checkEmailVerification, which sends the code
+      expect(mockCreateNewSessionFromIdpIntent).toHaveBeenCalledWith(expect.objectContaining({ userId: "newuser123" }));
+    });
+
     test("should resolve organization from username domain", async () => {
       mockRetrieveIDPIntent.mockResolvedValue({
         ...defaultIntent,
@@ -1030,6 +1093,24 @@ describe("processIDPCallback", () => {
       const result = await processIDPCallback(defaultParams);
 
       expect(result.redirect).toContain("/idp/google/failure");
+      expect(result.redirect).toContain("error=user_creation_failed");
+    });
+
+    test("should show the message of a user-creation hook that refuses the sign-up", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockCreateUser.mockRejectedValue(new ConnectError("An account with this email already exists. (EXEC-reUaUZCzCp)", 6));
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(result).toEqual({ error: "An account with this email already exists." });
+    });
+
+    test("should keep the generic failure for a Connect error that is not a hook refusal", async () => {
+      const { ConnectError } = await import("@zitadel/client");
+      mockCreateUser.mockRejectedValue(new ConnectError("Errors.Internal (USER-abc12)", 13));
+
+      const result = await processIDPCallback(defaultParams);
+
       expect(result.redirect).toContain("error=user_creation_failed");
     });
 
@@ -1131,6 +1212,29 @@ describe("processIDPCallback", () => {
       expect(result.redirect).toContain("/idp/google/complete-registration");
       expect(result.redirect).toContain("id=intent123");
       expect(result.redirect).toContain("token=token123");
+    });
+
+    // Spalk: an IdP that sends no email has the person enter it on the form
+    test.each([
+      ["no email", undefined],
+      ["an empty email", { email: "", verification: { case: "sendCode", value: {} } }],
+    ])("should redirect to complete registration when the IdP sent %s", async (_, email) => {
+      mockRetrieveIDPIntent.mockResolvedValue({
+        ...defaultIntent,
+        userId: undefined,
+        addHumanUser: {
+          ...defaultIntent.addHumanUser,
+          email,
+        },
+      });
+
+      const result = await processIDPCallback(defaultParams);
+
+      expect(mockCreateUser).not.toHaveBeenCalled();
+      expect(result.redirect).toContain("/idp/google/complete-registration");
+      expect(result.redirect).toContain("token=token123");
+      expect(result.redirect).toContain("givenName=Test");
+      expect(result.redirect).not.toContain("email=");
     });
 
     test("should use fallback organization when required fields missing and no org provided", async () => {

@@ -93,3 +93,20 @@ export function isSafeRedirectUri(uri: string): boolean {
     return false;
   }
 }
+
+/**
+ * Spalk: true when an email address is at the reserved `.invalid` top-level domain (RFC 2606), which can never
+ * receive mail, so no code or link should be sent to it. Spalk gives a member removed by their organisation's
+ * directory a placeholder `<userId>@removed.invalid`.
+ */
+export function isUndeliverableEmail(address: string | undefined): boolean {
+  const at = address?.lastIndexOf("@") ?? -1;
+  if (!address || at < 0) {
+    return false;
+  }
+  const domain = address
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
+  return domain === "invalid" || domain.endsWith(".invalid");
+}

@@ -234,6 +234,27 @@ describe("handleOIDCFlowInitiation — org-scoped session filtering", () => {
     vi.unstubAllEnvs();
   });
 
+  // Spalk: an invite's registration (prompt=create) takes the invited address, the login hint, as its email.
+  test("should prefill /register's email from loginHint (CREATE prompt)", async () => {
+    const { Prompt } = await import("@zitadel/proto/zitadel/oidc/v2/authorization_pb");
+    mockGetAuthRequest.mockResolvedValue({
+      authRequest: {
+        id: "abc123",
+        uiLocales: [],
+        scope: ["urn:zitadel:iam:org:id:111111"],
+        prompt: [Prompt.CREATE],
+        loginHint: "invitee@example.com",
+      },
+    });
+
+    const res = await handleOIDCFlowInitiation(makeBaseParams({ sessions: [] as any, sessionCookies: [] }));
+
+    const location = new URL(res.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/register");
+    expect(location.searchParams.get("email")).toBe("invitee@example.com");
+    expect(location.searchParams.get("organization")).toBe("111111");
+  });
+
   test("should redirect to /loginname when org scope filters out all sessions (default prompt)", async () => {
     mockGetAuthRequest.mockResolvedValue({
       authRequest: {
@@ -1090,5 +1111,35 @@ describe("handleOIDCFlowInitiation — idp scope (urn:zitadel:iam:org:idp:id)", 
         urls: expect.objectContaining({ loginHint: "user@example.com" }),
       }),
     );
+  });
+
+  // Spalk: the Live Sync API's organisation IDs are UUIDs, and an organisation's SSO link names it and its IdP.
+  test("should take a UUID organisation scope, and look the scoped IdP up in that organisation", async () => {
+    const { IdentityProviderType } = await import("@zitadel/proto/zitadel/settings/v2/login_settings_pb");
+    const orgId = "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+
+    mockGetAuthRequest.mockResolvedValue({
+      authRequest: {
+        id: "abc123",
+        uiLocales: [],
+        scope: [`urn:zitadel:iam:org:id:${orgId}`, "urn:zitadel:iam:org:idp:id:idp-1"],
+        prompt: [],
+        loginHint: undefined,
+      },
+    });
+
+    mockGetActiveIdentityProviders.mockResolvedValue({
+      identityProviders: [{ id: "idp-1", type: IdentityProviderType.AZURE_AD }],
+    });
+
+    mockStartIdentityProviderFlow.mockResolvedValue({
+      url: "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?client_id=xyz",
+    });
+
+    await handleOIDCFlowInitiation(makeBaseParams({ sessions: [] }));
+
+    expect(mockGetActiveIdentityProviders).toHaveBeenCalledWith(expect.objectContaining({ orgId }));
+    const { successUrl } = mockStartIdentityProviderFlow.mock.calls[0][0].urls;
+    expect(new URL(successUrl).searchParams.get("organization")).toBe(orgId);
   });
 });

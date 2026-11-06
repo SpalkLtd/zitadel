@@ -19,16 +19,11 @@ import {
   ServiceConfig,
   updateUser,
 } from "@/lib/zitadel";
-import { Code, create } from "@zitadel/client";
+import { Code, ConnectError, create } from "@zitadel/client";
 import { AutoLinkingOption } from "@zitadel/proto/zitadel/idp/v2/idp_pb";
 import { SetHumanEmail } from "@zitadel/proto/zitadel/user/v2/email_pb";
 import { SetHumanProfile } from "@zitadel/proto/zitadel/user/v2/user_pb";
-import {
-  CreateUserRequest,
-  CreateUserRequestSchema,
-  UpdateUserRequest,
-  UpdateUserRequestSchema,
-} from "@zitadel/proto/zitadel/user/v2/user_service_pb";
+import { UpdateUserRequest, UpdateUserRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_service_pb";
 import crypto from "crypto";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
@@ -36,6 +31,8 @@ import { getFingerprintIdCookie } from "../fingerprint";
 import { getEnrollmentAuthorizationError } from "./enrollment-guard";
 import { createNewSessionFromIdpIntent } from "./idp";
 import { syncInstanceRolesFromIdpIntent } from "./instance-roles";
+// Spalk: buildCreateUserRequest moved to a module the registration action shares
+import { buildCreateUserRequest, withoutCreateEmailCode } from "../idp-create-user";
 
 const logger = createLogger("idp-intent");
 
@@ -78,44 +75,6 @@ function resolveCreateUser(intent: IDPIntentResult): ResolvedCreateUser | undefi
       profile: intent.addHumanUser.profile,
       email: intent.addHumanUser.email,
     };
-  }
-
-  return undefined;
-}
-
-/**
- * Builds the request for the non-deprecated CreateUser endpoint from an IDP intent response.
- *
- * Prefers the new `user_action.create_user` oneof: the action's request is passed through as-is
- * and only the resolved organization is injected. Falls back to mapping the deprecated
- * `add_human_user` (flat) fields into the new nested shape for older API responses.
- */
-function buildCreateUserRequest(intent: IDPIntentResult, organizationId: string): CreateUserRequest | undefined {
-  if (intent.userAction?.case === "createUser") {
-    return create(CreateUserRequestSchema, {
-      ...intent.userAction.value,
-      organizationId,
-    });
-  }
-
-  // Fallback: map the deprecated flat add_human_user payload into the CreateUserRequest shape.
-  if (intent.addHumanUser) {
-    const add = intent.addHumanUser;
-    return create(CreateUserRequestSchema, {
-      organizationId,
-      username: add.username,
-      userType: {
-        case: "human",
-        value: {
-          profile: add.profile,
-          email: add.email,
-          phone: add.phone,
-          idpLinks: add.idpLinks,
-        },
-      },
-      // SetMetadataEntry and Metadata share the same {key, value} shape; map explicitly.
-      metadata: add.metadata?.map((entry) => ({ key: entry.key, value: entry.value })),
-    });
   }
 
   return undefined;
@@ -615,6 +574,11 @@ async function handleAutoLinking(ctx: IDPHandlerContext): Promise<IDPHandlerResu
         return { error: t("errors.sessionCreationFailed") };
       } catch (error) {
         logger.error("Error auto-linking user", { error });
+        // Spalk: a link Spalk's hook refuses shows the hook's message, as auto-creation does.
+        const hookMessage = targetRefusalMessage(error);
+        if (hookMessage) {
+          return { error: hookMessage };
+        }
         const errorMessage = error instanceof Error ? error.message : t("errors.unknownError");
         const params = buildRedirectParams({ error: errorMessage });
         return { redirect: `/idp/${provider}/linking-failed?${params}` };
@@ -623,6 +587,17 @@ async function handleAutoLinking(ctx: IDPHandlerContext): Promise<IDPHandlerResu
   }
 
   return null;
+}
+
+// Spalk: targetRefusalMessage is the message an Actions v2 request target (Spalk's
+// user-creation hook) refused the call with, without Zitadel's error ID: Zitadel
+// returns it as "<message> (EXEC-reUaUZCzCp)" or "<message> (EXEC-bmhNhpcqpF)".
+function targetRefusalMessage(error: unknown): string | undefined {
+  if (!(error instanceof ConnectError)) {
+    return undefined;
+  }
+  const match = /^([\s\S]*) \(EXEC-(?:reUaUZCzCp|bmhNhpcqpF)\)$/.exec(error.rawMessage);
+  return match?.[1] || undefined;
 }
 
 /**
@@ -648,8 +623,10 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
     }
 
     // Check if required profile fields are present
-    if (!createUserData.profile?.givenName || !createUserData.profile?.familyName) {
-      logger.info("Missing required profile fields (givenName or familyName), redirecting to complete registration");
+    // Spalk: and the email; an IdP that sends none has the person enter it on the form
+    // (registerUserAndLinkToIDP), rather than CreateUser failing on an empty email.
+    if (!createUserData.profile?.givenName || !createUserData.profile?.familyName || !createUserData.email?.email) {
+      logger.info("Missing required fields (givenName, familyName or email), redirecting to complete registration");
 
       if (!idpInformation!.userId) {
         logger.error("IDP intent missing userId, cannot redirect to complete registration");
@@ -673,7 +650,9 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
       return { redirect: `/idp/${provider}/complete-registration?${params}` };
     }
 
-    const createUserRequest = buildCreateUserRequest(intent, orgToRegisterOn);
+    // Spalk: the sign-in below sends the only email code (withoutCreateEmailCode)
+    const builtRequest = buildCreateUserRequest(intent, orgToRegisterOn);
+    const createUserRequest = builtRequest && withoutCreateEmailCode(builtRequest);
 
     if (!createUserRequest) {
       logger.error("Could not build create user request from intent");
@@ -718,6 +697,11 @@ async function handleAutoCreation(ctx: IDPHandlerContext): Promise<IDPHandlerRes
       return { error: t("errors.sessionCreationFailed") };
     } catch (error: unknown) {
       logger.error("Error auto-creating user", { error });
+      // Spalk: a sign-up Spalk's user-creation hook refuses shows the hook's message.
+      const hookMessage = targetRefusalMessage(error);
+      if (hookMessage) {
+        return { error: hookMessage };
+      }
       const params = buildRedirectParams();
       return { redirect: `/idp/${provider}/failure?${params}&error=user_creation_failed` };
     }

@@ -137,6 +137,8 @@ func (b *queryBuilder) visitAtom(atom *ValueAtom) (query.SearchQuery, error) {
 		}
 
 		return query.NewNotQuery(f)
+	case atom.ValuePathCondition != nil:
+		return b.visitValuePathCondition(atom.ValuePathCondition)
 	case atom.ValuePath != nil:
 		return b.visitValuePath(atom.ValuePath)
 	case atom.AttrExp != nil:
@@ -150,6 +152,26 @@ func (b *queryBuilder) visitValuePath(path *ValuePath) (query.SearchQuery, error
 	b.pushAttrPath(&path.AttrPath)
 	defer b.popAttrPath()
 	return b.visitOr(&path.ValFilter)
+}
+
+// visitValuePathCondition queries for an element the value path selects whose sub-attribute matches.
+// The query columns hold one value per attribute (a user has one email), so it is both conditions.
+func (b *queryBuilder) visitValuePathCondition(condition *ValuePathCondition) (query.SearchQuery, error) {
+	filter, err := b.visitValuePath(&condition.ValuePath)
+	if err != nil {
+		return nil, err
+	}
+	b.pushAttrPath(&condition.ValuePath.AttrPath)
+	defer b.popAttrPath()
+	sub, err := b.visitBinaryCondition(&BinaryCondition{
+		Left:     AttrPath{AttrName: condition.SubAttr},
+		Operator: condition.Operator,
+		Right:    condition.Right,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return query.NewAndQuery(filter, sub)
 }
 
 func (b *queryBuilder) visitAttrExp(exp *AttrExp) (query.SearchQuery, error) {

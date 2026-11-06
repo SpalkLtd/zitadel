@@ -38,6 +38,13 @@ declare namespace NodeJS {
     ZITADEL_SESSION_COOKIE_SECRET?: string;
 
     /**
+     * Spalk: optional, the longest lifetime of a session the user did not ask to remember ("Keep me signed in"
+     * unticked), as a Go-style duration ("24h", "1h30m") or a number of seconds. Defaults to 24h. A shorter
+     * lifetime from the login policy still applies; a remembered session gets the login policy's lifetime.
+     */
+    ZITADEL_LOGIN_UNREMEMBERED_SESSION_LIFETIME?: string;
+
+    /**
      * Path to a private key file for login client JWT authentication.
      * When set, the login service reads this key and signs JWTs with a
      * hardcoded subject of "login-client".

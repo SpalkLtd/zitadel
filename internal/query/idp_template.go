@@ -75,6 +75,8 @@ type OIDCIDPTemplate struct {
 	Scopes           database.TextArray[string]
 	IsIDTokenMapping bool
 	UsePKCE          bool
+	// Spalk: the generic OIDC IdP's "email verified" option.
+	IsEmailVerified bool
 }
 
 type JWTIDPTemplate struct {
@@ -333,6 +335,11 @@ var (
 	}
 	OIDCUsePKCECol = Column{
 		name:  projection.OIDCUsePKCECol,
+		table: oidcIdpTemplateTable,
+	}
+	// Spalk: the generic OIDC IdP's "email verified" option.
+	OIDCIsEmailVerifiedCol = Column{
+		name:  projection.OIDCIsEmailVerifiedCol,
 		table: oidcIdpTemplateTable,
 	}
 )
@@ -957,6 +964,7 @@ func prepareIDPTemplateByIDQuery() (sq.SelectBuilder, func(*sql.Row) (*IDPTempla
 			OIDCScopesCol.identifier(),
 			OIDCIDTokenMappingCol.identifier(),
 			OIDCUsePKCECol.identifier(),
+			OIDCIsEmailVerifiedCol.identifier(), // Spalk
 			// jwt
 			JWTIDCol.identifier(),
 			JWTIssuerCol.identifier(),
@@ -1087,6 +1095,7 @@ func prepareIDPTemplateByIDQuery() (sq.SelectBuilder, func(*sql.Row) (*IDPTempla
 			oidcScopes := database.TextArray[string]{}
 			oidcIDTokenMapping := sql.NullBool{}
 			oidcUserPKCE := sql.NullBool{}
+			oidcIsEmailVerified := sql.NullBool{} // Spalk
 
 			jwtID := sql.NullString{}
 			jwtIssuer := sql.NullString{}
@@ -1214,6 +1223,7 @@ func prepareIDPTemplateByIDQuery() (sq.SelectBuilder, func(*sql.Row) (*IDPTempla
 				&oidcScopes,
 				&oidcIDTokenMapping,
 				&oidcUserPKCE,
+				&oidcIsEmailVerified, // Spalk
 				// jwt
 				&jwtID,
 				&jwtIssuer,
@@ -1339,6 +1349,7 @@ func prepareIDPTemplateByIDQuery() (sq.SelectBuilder, func(*sql.Row) (*IDPTempla
 					Scopes:           oidcScopes,
 					IsIDTokenMapping: oidcIDTokenMapping.Bool,
 					UsePKCE:          oidcUserPKCE.Bool,
+					IsEmailVerified:  oidcIsEmailVerified.Bool, // Spalk
 				}
 			}
 			if jwtID.Valid {
@@ -1508,6 +1519,7 @@ func prepareIDPTemplatesQuery() (sq.SelectBuilder, func(*sql.Rows) (*IDPTemplate
 			OIDCScopesCol.identifier(),
 			OIDCIDTokenMappingCol.identifier(),
 			OIDCUsePKCECol.identifier(),
+			OIDCIsEmailVerifiedCol.identifier(), // Spalk
 			// jwt
 			JWTIDCol.identifier(),
 			JWTIssuerCol.identifier(),
@@ -1643,6 +1655,7 @@ func prepareIDPTemplatesQuery() (sq.SelectBuilder, func(*sql.Rows) (*IDPTemplate
 				oidcScopes := database.TextArray[string]{}
 				oidcIDTokenMapping := sql.NullBool{}
 				oidcUserPKCE := sql.NullBool{}
+				oidcIsEmailVerified := sql.NullBool{} // Spalk
 
 				jwtID := sql.NullString{}
 				jwtIssuer := sql.NullString{}
@@ -1770,6 +1783,7 @@ func prepareIDPTemplatesQuery() (sq.SelectBuilder, func(*sql.Rows) (*IDPTemplate
 					&oidcScopes,
 					&oidcIDTokenMapping,
 					&oidcUserPKCE,
+					&oidcIsEmailVerified, // Spalk
 					// jwt
 					&jwtID,
 					&jwtIssuer,
@@ -1894,6 +1908,7 @@ func prepareIDPTemplatesQuery() (sq.SelectBuilder, func(*sql.Rows) (*IDPTemplate
 						Scopes:           oidcScopes,
 						IsIDTokenMapping: oidcIDTokenMapping.Bool,
 						UsePKCE:          oidcUserPKCE.Bool,
+						IsEmailVerified:  oidcIsEmailVerified.Bool, // Spalk
 					}
 				}
 				if jwtID.Valid {

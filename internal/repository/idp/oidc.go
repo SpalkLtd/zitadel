@@ -17,6 +17,8 @@ type OIDCIDPAddedEvent struct {
 	Scopes           []string            `json:"scopes,omitempty"`
 	IsIDTokenMapping bool                `json:"idTokenMapping,omitempty"`
 	UsePKCE          bool                `json:"usePKCE,omitempty"`
+	// Spalk: trust the IdP's email as verified, like the Azure AD type's IsEmailVerified.
+	IsEmailVerified bool `json:"isEmailVerified,omitempty"`
 	Options
 }
 
@@ -28,7 +30,7 @@ func NewOIDCIDPAddedEvent(
 	clientID string,
 	clientSecret *crypto.CryptoValue,
 	scopes []string,
-	isIDTokenMapping, usePKCE bool,
+	isIDTokenMapping, usePKCE, isEmailVerified bool,
 	options Options,
 ) *OIDCIDPAddedEvent {
 	return &OIDCIDPAddedEvent{
@@ -41,6 +43,7 @@ func NewOIDCIDPAddedEvent(
 		Scopes:           scopes,
 		IsIDTokenMapping: isIDTokenMapping,
 		UsePKCE:          usePKCE,
+		IsEmailVerified:  isEmailVerified,
 		Options:          options,
 	}
 }
@@ -77,6 +80,8 @@ type OIDCIDPChangedEvent struct {
 	Scopes           []string            `json:"scopes,omitempty"`
 	IsIDTokenMapping *bool               `json:"idTokenMapping,omitempty"`
 	UsePKCE          *bool               `json:"usePKCE,omitempty"`
+	// Spalk: see OIDCIDPAddedEvent.IsEmailVerified.
+	IsEmailVerified *bool `json:"isEmailVerified,omitempty"`
 	OptionChanges
 }
 
@@ -145,6 +150,13 @@ func ChangeOIDCIsIDTokenMapping(idTokenMapping bool) func(*OIDCIDPChangedEvent) 
 func ChangeOIDCUsePKCE(usePKCE bool) func(*OIDCIDPChangedEvent) {
 	return func(e *OIDCIDPChangedEvent) {
 		e.UsePKCE = &usePKCE
+	}
+}
+
+// Spalk: see OIDCIDPAddedEvent.IsEmailVerified.
+func ChangeOIDCIsEmailVerified(isEmailVerified bool) func(*OIDCIDPChangedEvent) {
+	return func(e *OIDCIDPChangedEvent) {
+		e.IsEmailVerified = &isEmailVerified
 	}
 }
 

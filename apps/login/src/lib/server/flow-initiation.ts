@@ -32,7 +32,8 @@ import { buildCSP } from "../csp";
 
 const logger = createLogger("flow-initiation");
 
-const ORG_SCOPE_REGEX = /urn:zitadel:iam:org:id:([0-9]+)/;
+// Spalk: organisation IDs are the Live Sync API's UUIDs, not Zitadel's numeric ones.
+const ORG_SCOPE_REGEX = /urn:zitadel:iam:org:id:(.+)/;
 const ORG_DOMAIN_SCOPE_REGEX = /urn:zitadel:iam:org:domain:primary:(.+)/;
 const IDP_SCOPE_REGEX = /urn:zitadel:iam:org:idp:id:(.+)/;
 
@@ -365,6 +366,10 @@ export async function handleOIDCFlowInitiation(params: FlowInitiationParams): Pr
 
     if (organization) {
       registerUrl.searchParams.set("organization", organization);
+    }
+    // Spalk: the hint is the address the person was invited at, which the register page takes as its email.
+    if (authRequest.loginHint) {
+      registerUrl.searchParams.set("email", authRequest.loginHint);
     }
 
     return NextResponse.redirect(registerUrl);

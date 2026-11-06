@@ -24,6 +24,8 @@ type UsersHandler struct {
 	config          *scim_config.Config
 	filterEvaluator *filter.Evaluator
 	schema          *scim_schemas.ResourceSchema
+	// Spalk: executions calls CreateUser's Actions v2 targets on Create (user_execution.go)
+	executions Executions
 }
 
 type ScimUser struct {
@@ -111,7 +113,9 @@ func NewUsersHandler(
 	command *command.Commands,
 	query *query.Queries,
 	userCodeAlg crypto.EncryptionAlgorithm,
-	config *scim_config.Config) ResourceHandler[*ScimUser] {
+	config *scim_config.Config,
+	executions Executions, // Spalk
+) ResourceHandler[*ScimUser] {
 	return &UsersHandler{
 		command,
 		query,
@@ -125,6 +129,7 @@ func NewUsersHandler(
 			Description:  "User Account",
 			Resource:     new(ScimUser),
 		}),
+		executions,
 	}
 }
 
@@ -155,12 +160,22 @@ func (h *UsersHandler) Create(ctx context.Context, user *ScimUser) (*ScimUser, e
 		return nil, err
 	}
 
+	// Spalk: run CreateUser's request executions, as every other way of creating a user does
+	createUserRun, err := h.executeCreateUserRequest(ctx, orgID, user, addHuman)
+	if err != nil {
+		return nil, err
+	}
+
 	err = h.command.AddUserHuman(ctx, orgID, addHuman, false, h.userCodeAlg)
 	if err != nil {
 		return nil, err
 	}
 
 	h.mapAddCommandToScimUser(ctx, user, addHuman)
+	// Spalk: and its response executions
+	if err := h.executeCreateUserResponse(ctx, createUserRun, addHuman); err != nil {
+		return nil, err
+	}
 	return user, nil
 }
 

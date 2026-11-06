@@ -24,6 +24,7 @@ import { SetPasswordRequestSchema } from "@zitadel/proto/zitadel/user/v2/user_se
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { completeFlowOrGetUrl } from "../client";
+import { isUndeliverableEmail } from "../client-utils"; // Spalk
 import { getSessionCookieById, getSessionCookieByLoginName } from "../cookies";
 import { getServiceConfig } from "../service-url";
 import {
@@ -65,10 +66,10 @@ export async function resetPassword(command: ResetPasswordCommand) {
     return { error: t("errors.passwordResetNotAllowed") };
   }
 
+  // Spalk: by login name alone, as in sendPassword, so that a user Spalk has just moved is found.
   const searchResult = await searchUsers({
     serviceConfig,
     searchValue: command.loginName,
-    organizationId: command.organization,
     loginSettings,
   });
 
@@ -116,6 +117,12 @@ export async function resetPassword(command: ResetPasswordCommand) {
     }
   }
 
+  // Spalk: an email at a .invalid domain (the placeholder Spalk gives a member their organisation's directory
+  // removed) can never receive the reset code.
+  if (isUndeliverableEmail(humanUser?.email?.email)) {
+    return { error: t("errors.emailUndeliverable") };
+  }
+
   const userId = user.userId;
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -134,6 +141,7 @@ export type UpdateSessionCommand = {
   defaultOrganization?: string;
   checks: Checks;
   requestId?: string;
+  remember?: boolean; // Spalk: the user ticked "Keep me signed in"
 };
 
 export async function sendPassword(
@@ -145,9 +153,35 @@ export async function sendPassword(
 
   recordAuthAttempt("password", command.organization);
 
+  // Spalk: the answer to a wrong password, shared by the session update and the new session below, so that
+  // either one says the password is wrong (upstream's only said it for a new session, which never had the count).
+  const wrongPassword = async (failedAttempts: number, orgId: string | undefined, loginSettings?: LoginSettings) => {
+    recordAuthFailure("password", "invalid_password", command.organization);
+    if (loginSettings?.ignoreUnknownUsernames) {
+      return { error: t("errors.failedToAuthenticateNoLimit") };
+    }
+    const lockoutSettings = await getLockoutSettings({ serviceConfig, orgId });
+
+    const hasLimit =
+      lockoutSettings?.maxPasswordAttempts !== undefined && lockoutSettings?.maxPasswordAttempts > BigInt(0);
+    const locked = hasLimit && failedAttempts >= lockoutSettings?.maxPasswordAttempts;
+    const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
+
+    return {
+      error: t(messageKey, {
+        failedAttempts,
+        maxPasswordAttempts: hasLimit ? String(lockoutSettings?.maxPasswordAttempts ?? 0) : "?",
+        lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
+      }),
+    };
+  };
+
+  // Spalk: the user is looked up by login name alone, here and in the search below. command.organization is
+  // where the login-name step found them, which can still be the organisation Spalk has just moved them out of
+  // (MoveUser, at first login); scoped to it, they are unknown. Usernames are unique instance-wide
+  // (user_login_must_be_domain is off), so the login name alone finds them.
   let sessionCookie = await getSessionCookieByLoginName({
     loginName: command.loginName,
-    organization: command.organization,
   });
 
   let session;
@@ -167,6 +201,12 @@ export async function sendPassword(
     if (loginSettingsByContext && !loginSettingsByContext.allowLocalAuthentication) {
       return { error: t("errors.localAuthenticationNotAllowed") };
     }
+  }
+
+  // Spalk: a remembered session can be older than an unremembered one may live, so capping its lifetime would end
+  // it at once; signing in again without "Keep me signed in" starts a new session instead.
+  if (sessionCookie?.remember && !command.remember) {
+    sessionCookie = undefined;
   }
 
   if (sessionCookie) {
@@ -189,12 +229,18 @@ export async function sendPassword(
           checks: command.checks,
           requestId: command.requestId,
           lifetime,
+          remember: !!command.remember,
         });
       } else {
         // Force fallback if settings can't be loaded
         throw new Error("Could not load login settings");
       }
-    } catch {
+    } catch (error: any) {
+      // Spalk: a wrong password is answered here. Falling back to a new session would check it a second time,
+      // counting it twice, and lose the count the message needs.
+      if ("failedAttempts" in error && error.failedAttempts) {
+        return wrongPassword(error.failedAttempts, sessionCookie?.organization, loginSettingsByUser);
+      }
       logger.warn("[Password] Could not update session");
       // If the session was terminated or any other error occurred during update,
       // we fall back to creating a new session.
@@ -221,7 +267,6 @@ export async function sendPassword(
     const searchResult = await searchUsers({
       serviceConfig,
       searchValue: command.loginName,
-      organizationId: command.organization,
       loginSettings: loginSettingsByContext,
     });
 
@@ -275,29 +320,13 @@ export async function sendPassword(
           checks,
           requestId: command.requestId,
           lifetime: loginSettingsByContext?.passwordCheckLifetime,
+          remember: !!command.remember,
         });
         session = result.session;
         sessionCookie = result.sessionCookie;
       } catch (error: any) {
         if ("failedAttempts" in error && error.failedAttempts) {
-          recordAuthFailure("password", "invalid_password", command.organization);
-          if (loginSettingsByContext?.ignoreUnknownUsernames) {
-            return { error: t("errors.failedToAuthenticateNoLimit") };
-          }
-          const lockoutSettings = await getLockoutSettings({ serviceConfig, orgId: command.organization });
-
-          const hasLimit =
-            lockoutSettings?.maxPasswordAttempts !== undefined && lockoutSettings?.maxPasswordAttempts > BigInt(0);
-          const locked = hasLimit && error.failedAttempts >= lockoutSettings?.maxPasswordAttempts;
-          const messageKey = hasLimit ? "errors.failedToAuthenticate" : "errors.failedToAuthenticateNoLimit";
-
-          return {
-            error: t(messageKey, {
-              failedAttempts: error.failedAttempts,
-              maxPasswordAttempts: hasLimit ? String(lockoutSettings?.maxPasswordAttempts ?? 0) : "?",
-              lockoutMessage: locked ? t("errors.accountLockedContactAdmin") : "",
-            }),
-          };
+          return wrongPassword(error.failedAttempts, command.organization, loginSettingsByContext);
         }
         recordAuthFailure("password", "session_creation_failed", command.organization);
         if (loginSettingsByContext?.ignoreUnknownUsernames) {

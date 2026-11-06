@@ -103,6 +103,69 @@ describe("sendPassword", () => {
     mockGetServiceConfig.mockReturnValue({ serviceConfig: { baseUrl: "https://api.example.com" } });
   });
 
+  // Spalk: a wrong password at the session update is answered as one, with no second check by a new session.
+  test("should say the password is wrong when updating the existing session fails on it", async () => {
+    const { setSessionAndUpdateCookie } = await import("@/lib/server/cookie");
+    const { getLockoutSettings } = await import("../zitadel");
+    mockGetSessionCookieByLoginName.mockResolvedValue({ id: "s1", token: "t1", organization: "org123" });
+    mockGetLoginSettings.mockResolvedValue({ passwordCheckLifetime: { seconds: BigInt(86400) } });
+    vi.mocked(setSessionAndUpdateCookie).mockRejectedValue({ error: "Failed to authenticate", failedAttempts: 1 });
+    vi.mocked(getLockoutSettings).mockResolvedValue({ maxPasswordAttempts: BigInt(0) } as any);
+
+    const result = await sendPassword({
+      loginName: "testuser",
+      checks: create(ChecksSchema, { password: { password: "wrong" } }),
+    });
+
+    expect(result).toEqual({ error: "errors.failedToAuthenticateNoLimit" });
+    expect(mockCreateSessionAndUpdateCookie).not.toHaveBeenCalled();
+  });
+
+  // Spalk: so does a new session's, which now carries the count (createSessionAndUpdateCookie).
+  test("should say the password is wrong when a new session fails on it", async () => {
+    const { getLockoutSettings } = await import("../zitadel");
+    mockGetSessionCookieByLoginName.mockResolvedValue(null);
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: UserState.ACTIVE }],
+    });
+    mockGetLoginSettings.mockResolvedValue({
+      passwordCheckLifetime: { seconds: BigInt(86400) },
+      allowLocalAuthentication: true,
+    });
+    mockCreateSessionAndUpdateCookie.mockRejectedValue({ error: "Failed to authenticate", failedAttempts: 2 });
+    vi.mocked(getLockoutSettings).mockResolvedValue({ maxPasswordAttempts: BigInt(0) } as any);
+
+    const result = await sendPassword({
+      loginName: "testuser",
+      checks: create(ChecksSchema, { password: { password: "wrong" } }),
+    });
+
+    expect(result).toEqual({ error: "errors.failedToAuthenticateNoLimit" });
+  });
+
+  // Spalk: the organisation the login-name step passed on can be the one the user was just moved out of.
+  test("should look the user up by login name alone, not in the organisation passed on", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue(null);
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: UserState.ACTIVE }],
+    });
+    mockGetLoginSettings.mockResolvedValue({
+      passwordCheckLifetime: { seconds: BigInt(86400) },
+      allowLocalAuthentication: true,
+    });
+    mockCreateSessionAndUpdateCookie.mockRejectedValue(new Error("stop here"));
+
+    await sendPassword({
+      loginName: "testuser",
+      organization: "old-org",
+      checks: create(ChecksSchema, { password: { password: "password123" } }),
+    });
+
+    expect(mockGetSessionCookieByLoginName).toHaveBeenCalledWith({ loginName: "testuser" });
+    expect(mockSearchUsers).toHaveBeenCalledWith(expect.not.objectContaining({ organizationId: expect.anything() }));
+    expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalled();
+  });
+
   test("should create session and verify password when no session exists", async () => {
     // 1. No existing session
     mockGetSessionCookieByLoginName.mockResolvedValue(null);

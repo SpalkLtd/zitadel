@@ -37,4 +37,22 @@ describe("RegisterFormIDPIncomplete", () => {
     const { getByTestId } = render(<RegisterFormIDPIncomplete {...defaultProps} idpUserName="existing-user" />);
     expect(getByTestId("firstname-text-input")).toHaveFocus();
   });
+
+  // Spalk: the user gets the identity provider's email, so it can't be edited
+  test("shows the identity provider's email read-only", () => {
+    const { getByTestId } = render(
+      <RegisterFormIDPIncomplete {...defaultProps} defaultValues={{ email: "person@example.com" }} />,
+    );
+    const email = getByTestId("email-text-input");
+    expect(email).toHaveValue("person@example.com");
+    expect(email).toHaveAttribute("readonly");
+  });
+
+  // Spalk: an identity provider that sent no email has the person enter one
+  test("lets the person enter an email when the identity provider sent none", () => {
+    const { getByTestId } = render(<RegisterFormIDPIncomplete {...defaultProps} defaultValues={{ email: "" }} />);
+    const email = getByTestId("email-text-input");
+    expect(email).toHaveValue("");
+    expect(email).not.toHaveAttribute("readonly");
+  });
 });

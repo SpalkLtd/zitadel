@@ -331,16 +331,21 @@ export async function createSessionFromChecksAndChallenges({
   checks,
   challenges,
   lifetime,
+  metadata,
 }: WithServiceConfig<{
   checks: Checks;
   challenges?: RequestChallenges;
   lifetime: Duration;
+  metadata?: Record<string, Uint8Array>; // Spalk: e.g. the "Keep me signed in" choice
 }>) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
 
   const userAgent = await getUserAgent();
 
-  return sessionService.createSession({ ...{ checks, lifetime, userAgent }, ...(challenges ? { challenges } : {}) }, {});
+  return sessionService.createSession(
+    { ...{ checks, lifetime, userAgent }, ...(challenges ? { challenges } : {}), ...(metadata ? { metadata } : {}) },
+    {},
+  );
 }
 
 export async function createSessionForUserIdAndIdpIntent({
@@ -348,6 +353,7 @@ export async function createSessionForUserIdAndIdpIntent({
   userId,
   idpIntent,
   lifetime,
+  metadata,
 }: WithServiceConfig<{
   userId: string;
   idpIntent: {
@@ -355,6 +361,7 @@ export async function createSessionForUserIdAndIdpIntent({
     idpIntentToken?: string | undefined;
   };
   lifetime: Duration;
+  metadata?: Record<string, Uint8Array>; // Spalk: e.g. the "Keep me signed in" choice
 }>) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
 
@@ -372,6 +379,7 @@ export async function createSessionForUserIdAndIdpIntent({
     },
     lifetime,
     userAgent,
+    ...(metadata ? { metadata } : {}),
   });
 }
 
@@ -382,12 +390,14 @@ export async function setSession({
   challenges,
   checks,
   lifetime,
+  metadata,
 }: WithServiceConfig<{
   sessionId: string;
   sessionToken: string;
   challenges: RequestChallenges | undefined;
   checks?: Checks;
   lifetime: Duration;
+  metadata?: Record<string, Uint8Array>; // Spalk: e.g. the "Keep me signed in" choice
 }>) {
   const sessionService: Client<typeof SessionService> = await createServiceForHost(SessionService, serviceConfig);
 
@@ -397,7 +407,7 @@ export async function setSession({
       sessionToken,
       challenges,
       checks: checks ? checks : {},
-      metadata: {},
+      metadata: metadata ?? {},
       lifetime,
     },
     {},
@@ -456,11 +466,20 @@ export type AddHumanUserData = WithServiceConfig<{
   firstName: string;
   lastName: string;
   email: string;
+  username?: string; // Spalk: the username the user chose; their email when absent
   password?: string;
   organization: string;
 }>;
 
-export async function addHumanUser({ serviceConfig, email, firstName, lastName, password, organization }: AddHumanUserData) {
+export async function addHumanUser({
+  serviceConfig,
+  email,
+  firstName,
+  lastName,
+  username,
+  password,
+  organization,
+}: AddHumanUserData) {
   const userService: Client<typeof UserService> = await createServiceForHost(UserService, serviceConfig);
 
   let addHumanUserRequest: AddHumanUserRequest = create(AddHumanUserRequestSchema, {
@@ -471,7 +490,7 @@ export async function addHumanUser({ serviceConfig, email, firstName, lastName, 
         value: false,
       },
     },
-    username: email,
+    username: username || email, // Spalk: the username they chose, when they chose one
     profile: { givenName: firstName, familyName: lastName },
     passwordType: password ? { case: "password", value: { password } } : undefined,
   });

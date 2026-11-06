@@ -262,6 +262,7 @@ func Setup(ctx context.Context, config *Config, steps *Steps, masterKey string) 
 	steps.s77StampEventPositionAtInsert = &StampEventPositionAtInsert{dbClient: dbClient}
 	steps.s78UniqueConstraintOwners = &UniqueConstraintOwners{dbClient: dbClient}
 	steps.s80Users14InstanceResourceOwnerIndex = &Users14InstanceResourceOwnerIndex{dbClient: dbClient}
+	steps.sSpalk01IDPTemplate6OIDCIsEmailVerified = &IDPTemplate6OIDCIsEmailVerified{dbClient: dbClient} // Spalk
 	if steps.BackfillUniqueConstraintOwners == nil {
 		steps.BackfillUniqueConstraintOwners = &BackfillUniqueConstraintOwners{}
 	}
@@ -401,6 +402,7 @@ func Setup(ctx context.Context, config *Config, steps *Steps, masterKey string) 
 		steps.s73FixUserGrantRoles,
 		steps.s74Apps7OIDCConfigsAddRegistrationToken,
 		steps.s75Apps7OIDCConfigsAddAppLinkConfig,
+		steps.sSpalk01IDPTemplate6OIDCIsEmailVerified, // Spalk
 	} {
 		setupErr = executeMigration(ctx, eventstoreClient, step, "migration failed")
 		if setupErr != nil {

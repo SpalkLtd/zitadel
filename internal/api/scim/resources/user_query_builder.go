@@ -41,13 +41,23 @@ var fieldPathColumnMapping = filter.FieldPathMapping{
 		Column:    query.HumanFirstNameCol,
 		FieldType: filter.FieldTypeString,
 	},
+	// Spalk: email values aren't case-exact (RFC 7643 section 4.1.2), so a directory's "Jane.Doe@Contoso.com"
+	// finds the user stored as "jane.doe@contoso.com".
 	"emails": {
-		Column:    query.HumanEmailCol,
-		FieldType: filter.FieldTypeString,
+		Column:          query.HumanEmailCol,
+		FieldType:       filter.FieldTypeString,
+		CaseInsensitive: true,
 	},
 	"emails.value": {
-		Column:    query.HumanEmailCol,
-		FieldType: filter.FieldTypeString,
+		Column:          query.HumanEmailCol,
+		FieldType:       filter.FieldTypeString,
+		CaseInsensitive: true,
+	},
+	// Spalk: a user has one email, so a filter on its type matches it whatever the type,
+	// letting directories match on emails[type eq "work"].value (Entra's email matching).
+	"emails.type": {
+		FieldType:        filter.FieldTypeCustom,
+		BuildMappedQuery: buildEmailTypeQuery,
 	},
 	"active": {
 		FieldType:        filter.FieldTypeCustom,
@@ -121,6 +131,14 @@ func buildMetadataQuery(ctx context.Context, key metadata.Key, value *filter.Com
 
 	scopedKey := string(metadata.ScopeKey(ctx, key))
 	return query.NewUserMetadataExistsQuery(scopedKey, []byte(*value.StringValue), query.TextEquals, comparisonOperator)
+}
+
+// buildEmailTypeQuery matches every user with an email: Zitadel keeps one email, of no particular type.
+func buildEmailTypeQuery(_ context.Context, compareValue *filter.CompValue, op *filter.CompareOp) (query.SearchQuery, error) {
+	if !op.Equal || compareValue.StringValue == nil {
+		return nil, serrors.ThrowInvalidFilter(zerrors.ThrowInvalidArgument(nil, "SCIM-EMt1", "invalid filter expression: emails.type supports only eq with a string"))
+	}
+	return query.NewNotNullQuery(query.HumanEmailCol)
 }
 
 func buildActiveUserStateQuery(_ context.Context, compareValue *filter.CompValue, op *filter.CompareOp) (query.SearchQuery, error) {

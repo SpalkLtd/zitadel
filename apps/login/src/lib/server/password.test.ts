@@ -455,6 +455,62 @@ describe("sendPassword", () => {
     expect(mockSetSessionAndUpdateCookie).toHaveBeenCalled();
     expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalled();
   });
+
+  // Spalk: the "Keep me signed in" choice reaches the session on either path.
+  test("passes a ticked box to both the session update and the new session", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue({ id: "session123", token: "token123", organization: "org123" });
+    mockSetSessionAndUpdateCookie.mockRejectedValue({ message: "session already terminated" });
+    mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: 1, preferredLoginName: "user@example.com" }],
+    });
+    mockCreateSessionAndUpdateCookie.mockResolvedValue({
+      session: { factors: { user: { id: "user123", loginName: "user@example.com" } } },
+      sessionCookie: { id: "newSession", token: "newToken" },
+    });
+
+    await sendPassword({
+      loginName: "user@example.com",
+      checks: { password: { password: "password" } } as any,
+      remember: true,
+    });
+
+    expect(mockSetSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: true }));
+    expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: true }));
+  });
+
+  test("starts a new session when a remembered one signs in again without remembering", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue({
+      id: "session123",
+      token: "token123",
+      organization: "org123",
+      remember: true,
+    });
+    mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });
+    mockSearchUsers.mockResolvedValue({
+      result: [{ userId: "user123", type: { case: "human", value: {} }, state: 1, preferredLoginName: "user@example.com" }],
+    });
+    mockCreateSessionAndUpdateCookie.mockResolvedValue({
+      session: { factors: { user: { id: "user123", loginName: "user@example.com" } } },
+      sessionCookie: { id: "newSession", token: "newToken" },
+    });
+
+    await sendPassword({ loginName: "user@example.com", checks: { password: { password: "password" } } as any });
+
+    expect(mockSetSessionAndUpdateCookie).not.toHaveBeenCalled();
+    expect(mockCreateSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: false }));
+  });
+
+  test("records an unticked box as a choice", async () => {
+    mockGetSessionCookieByLoginName.mockResolvedValue({ id: "session123", token: "token123", organization: "org123" });
+    mockGetLoginSettings.mockResolvedValue({ allowLocalAuthentication: true });
+    mockSetSessionAndUpdateCookie.mockRejectedValue({ failedAttempts: 1 });
+    mockGetLockoutSettings.mockResolvedValue({});
+
+    await sendPassword({ loginName: "user@example.com", checks: { password: { password: "wrong" } } as any });
+
+    expect(mockSetSessionAndUpdateCookie).toHaveBeenCalledWith(expect.objectContaining({ remember: false }));
+  });
 });
 describe("resetPassword", () => {
   let mockHeaders: any;
@@ -524,6 +580,37 @@ describe("resetPassword", () => {
 
     expect(result).toEqual({ error: "errors.couldNotSendResetLink" });
     expect(mockPasswordReset).not.toHaveBeenCalled();
+  });
+
+  // Spalk
+  describe("an email at a .invalid domain", () => {
+    const userWithEmail = (email: string) => ({
+      userId: "user123",
+      preferredLoginName: "user",
+      details: { resourceOwner: "org123" },
+      type: { case: "human", value: { email: { email, isVerified: true } } },
+    });
+
+    test("is sent no reset code and is told the address can't receive mail", async () => {
+      mockGetLoginSettings.mockResolvedValue({});
+      mockSearchUsers.mockResolvedValue({ result: [userWithEmail("user123@removed.invalid")] });
+
+      const result = await resetPassword({ loginName: "user" });
+
+      expect(result).toEqual({ error: "errors.emailUndeliverable" });
+      expect(mockPasswordReset).not.toHaveBeenCalled();
+    });
+
+    test("a deliverable email is still sent the reset code", async () => {
+      mockGetLoginSettings.mockResolvedValue({});
+      mockSearchUsers.mockResolvedValue({ result: [userWithEmail("user@example.com")] });
+      mockPasswordReset.mockResolvedValue({});
+
+      const result = await resetPassword({ loginName: "user" });
+
+      expect(result).toEqual({});
+      expect(mockPasswordReset).toHaveBeenCalledWith(expect.objectContaining({ userId: "user123" }));
+    });
   });
 });
 

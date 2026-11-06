@@ -4,6 +4,7 @@ import { isClassifiedError } from "@/lib/grpc/interceptors/error-classification"
 import { sendLoginname, SendLoginnameCommand } from "@/lib/server/loginname";
 import { createCallback, getLoginSettings, ServiceConfig } from "@/lib/zitadel";
 import { Code, create } from "@zitadel/client";
+import { ErrorReason } from "@zitadel/proto/zitadel/oidc/v2/authorization_pb";
 import { CreateCallbackRequestSchema, SessionSchema } from "@zitadel/proto/zitadel/oidc/v2/oidc_service_pb";
 import { Session } from "@zitadel/proto/zitadel/session/v2/session_pb";
 import { isSessionValid } from "./session";
@@ -76,6 +77,31 @@ export async function loginWithOIDCAndSession({
       } catch (error: unknown) {
         // handle already handled gracefully as these could come up if old emails with requestId are used (reset password, register emails etc.)
         console.error(error);
+        // Spalk: Zitadel refuses a user outside the organisation the auth request scopes
+        // (COMMAND-59ljd, Errors.User.NotAllowedOrg). Fail the auth request with access_denied so
+        // the app hears of it, rather than going to the default redirect, which restarts the login.
+        if (isClassifiedError(error) && error.code === Code.FailedPrecondition && error.message.includes("COMMAND-59ljd")) {
+          const denied = await createCallback({
+            serviceConfig,
+            req: create(CreateCallbackRequestSchema, {
+              authRequestId: authRequest,
+              callbackKind: {
+                case: "error",
+                value: {
+                  error: ErrorReason.ACCESS_DENIED,
+                  errorDescription: "This account isn't a member of the organisation it tried to log in to",
+                },
+              },
+            }),
+          }).catch((err: unknown) => {
+            console.error(err);
+            return undefined;
+          });
+          if (denied?.callbackUrl && isSafeRedirectUri(denied.callbackUrl)) {
+            return { redirect: denied.callbackUrl };
+          }
+          return { error: "This account isn't a member of the organisation it tried to log in to" };
+        }
         if (isClassifiedError(error) && error.code === Code.FailedPrecondition) {
           const loginSettings = await getLoginSettings({
             serviceConfig,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { isExternalUrl, isSafeRedirectUri } from "./client-utils";
+import { isExternalUrl, isSafeRedirectUri, isUndeliverableEmail } from "./client-utils";
 
 describe("isSafeRedirectUri", () => {
   beforeEach(() => {
@@ -72,5 +72,23 @@ describe("isExternalUrl", () => {
   test("should return true for protocol-relative URLs", () => {
     expect(isExternalUrl("//evil.com")).toBe(true);
     expect(isExternalUrl("//example.com/path")).toBe(true);
+  });
+});
+
+// Spalk
+describe("isUndeliverableEmail", () => {
+  test("is true for an address at a .invalid domain, whatever its case and surrounding spaces", () => {
+    expect(isUndeliverableEmail("user123@removed.invalid")).toBe(true);
+    expect(isUndeliverableEmail(" User123@Removed.INVALID ")).toBe(true);
+    expect(isUndeliverableEmail("user@invalid")).toBe(true);
+  });
+
+  test("is false for a deliverable address, a domain merely containing invalid, or no address", () => {
+    expect(isUndeliverableEmail("user@example.com")).toBe(false);
+    expect(isUndeliverableEmail("user@notinvalid")).toBe(false);
+    expect(isUndeliverableEmail("user@invalid.example.com")).toBe(false);
+    expect(isUndeliverableEmail("invalid")).toBe(false);
+    expect(isUndeliverableEmail("")).toBe(false);
+    expect(isUndeliverableEmail(undefined)).toBe(false);
   });
 });

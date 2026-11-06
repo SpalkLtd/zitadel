@@ -87,9 +87,12 @@ export function SessionItem({ session, reload, requestId }: { session: Session; 
               } else if (session.factors?.user) {
                 setLoading(true);
                 try {
+                  // Spalk: no organization, so the user is found wherever they are now. The session's is where
+                  // they were when it was created, and Spalk moves users between organisations (MoveUser): searched
+                  // there, a moved user is unknown and sent to the organisation's only IdP. Usernames are unique
+                  // instance-wide (user_login_must_be_domain is off), so the login name alone finds them.
                   const res = await sendLoginname({
                     loginName: session.factors?.user?.loginName,
-                    organization: session.factors.user.organizationId,
                     requestId: requestId,
                   });
 
