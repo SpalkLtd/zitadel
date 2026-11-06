@@ -176,6 +176,10 @@ func Test_buildEmailTypeQuery(t *testing.T) {
 func Test_fieldPathColumnMapping_entraEmailMatch(t *testing.T) {
 	f, err := filter.ParseFilter(`emails[type eq "work"].value eq "someone@example.com"`)
 	require.NoError(t, err)
-	_, err = f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
+	got, err := f.BuildQuery(context.Background(), schemas.IdUser, fieldPathColumnMapping)
 	require.NoError(t, err)
+	require.Equal(t, test.Must(query.NewAndQuery(
+		test.Must(query.NewNotNullQuery(query.HumanEmailCol)),
+		test.Must(query.NewTextQuery(query.HumanEmailCol, "someone@example.com", query.TextEqualsIgnoreCase)),
+	)), got)
 }

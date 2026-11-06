@@ -41,13 +41,17 @@ var fieldPathColumnMapping = filter.FieldPathMapping{
 		Column:    query.HumanFirstNameCol,
 		FieldType: filter.FieldTypeString,
 	},
+	// Spalk: email values aren't case-exact (RFC 7643 section 4.1.2), so a directory's "Jane.Doe@Contoso.com"
+	// finds the user stored as "jane.doe@contoso.com".
 	"emails": {
-		Column:    query.HumanEmailCol,
-		FieldType: filter.FieldTypeString,
+		Column:          query.HumanEmailCol,
+		FieldType:       filter.FieldTypeString,
+		CaseInsensitive: true,
 	},
 	"emails.value": {
-		Column:    query.HumanEmailCol,
-		FieldType: filter.FieldTypeString,
+		Column:          query.HumanEmailCol,
+		FieldType:       filter.FieldTypeString,
+		CaseInsensitive: true,
 	},
 	// Spalk: a user has one email, so a filter on its type matches it whatever the type,
 	// letting directories match on emails[type eq "work"].value (Entra's email matching).
